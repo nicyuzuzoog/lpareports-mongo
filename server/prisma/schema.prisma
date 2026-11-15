@@ -1,0 +1,234 @@
+// LPACAMIS database schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  DOS
+  HEAD_TEACHER
+  TEACHER
+}
+
+enum Level {
+  NURSERY
+  LOWER_PRIMARY
+  UPPER_PRIMARY
+}
+
+enum Term {
+  TERM1
+  TERM2
+  TERM3
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         Role     @default(TEACHER)
+  isActive     Boolean  @default(true)
+  // Delete permission is granted by the Super Admin only.
+  canDelete    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  classes        TeacherClass[]
+  subjects       TeacherSubject[]
+  classTeacherOf SchoolClass[]   @relation("ClassTeacher")
+  createdStudents Student[]      @relation("StudentCreatedBy")
+  submittedReports ReportCard[] @relation("ReportSubmittedBy")
+  approvedReports  ReportCard[] @relation("ReportApprovedBy")
+  marks           Mark[]
+  auditLogs       AuditLog[]
+
+  @@index([role])
+}
+
+model TeacherClass {
+  userId  String
+  classId String
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  class   SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@id([userId, classId])
+}
+
+model TeacherSubject {
+  userId    String
+  subjectId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, subjectId])
+}
+
+model SchoolClass {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  level          Level
+  classTeacherId String?
+  classTeacher   User?    @relation("ClassTeacher", fields: [classTeacherId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  students    Student[]
+  teachers    TeacherClass[]
+  reportCards ReportCard[]
+
+  @@index([level])
+}
+
+model Subject {
+  id       String   @id @default(cuid())
+  name     String   @unique
+  code     String   @unique
+  levels   Level[]
+  position Int      @default(0)
+  isActive Boolean  @default(true)
+
+  teachers    TeacherSubject[]
+  marks       Mark[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model Student {
+  id            String   @id @default(cuid())
+  // Unique code used as the student's report-card identifier / seed.
+  code          String   @unique
+  firstName     String
+  lastName      String
+  otherNames    String?
+  gender        Gender
+  dateOfBirth   DateTime?
+  guardianName  String?
+  guardianPhone String?
+  address       String?
+  isActive      Boolean  @default(true)
+  classId       String
+  class         SchoolClass @relation(fields: [classId], references: [id])
+  createdById   String?
+  createdBy     User?    @relation("StudentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  reportCards ReportCard[]
+
+  @@index([classId])
+  @@index([lastName, firstName])
+}
+
+model ReportCard {
+  id                String       @id @default(cuid())
+  studentId         String
+  student           Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // Class snapshot for the term the report belongs to.
+  classId           String
+  class             SchoolClass  @relation(fields: [classId], references: [id])
+  term              Term
+  year              Int
+  attendancePresent Int?
+  attendanceTotal   Int?
+  teacherComment    String?
+  dosComment        String?
+  headComment       String?
+  status            ReportStatus @default(DRAFT)
+  submittedById     String?
+  submittedBy       User?        @relation("ReportSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  submittedAt       DateTime?
+  approvedById      String?
+  approvedBy        User?        @relation("ReportApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt        DateTime?
+  createdById       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  marks Mark[]
+
+  @@unique([studentId, term, year])
+  @@index([classId, term, year])
+  @@index([status])
+}
+
+model Mark {
+  id           String     @id @default(cuid())
+  reportCardId String
+  reportCard   ReportCard @relation(fields: [reportCardId], references: [id], onDelete: Cascade)
+  subjectId    String
+  subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  caScore      Float?
+  examScore    Float?
+  total        Float?
+  grade        String?
+  remark       String?
+  // Nursery / lower primary competency descriptor.
+  competency   String?
+  teacherId    String?
+  teacher      User?      @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([reportCardId, subjectId])
+  @@index([subjectId])
+}
+
+model Setting {
+  id             Int      @id @default(1)
+  schoolName     String   @default("LPACAMIS")
+  schoolMotto    String   @default("Knowledge, Character, Service")
+  schoolAddress  String   @default("P.O. Box 100, Kampala, Uganda")
+  schoolPhone    String   @default("+256 700 000 000")
+  schoolEmail    String   @default("info@lpacamis.ac.ug")
+  headTeacherName String  @default("Head Teacher")
+  dosName        String   @default("Director of Studies")
+  // Grading configuration per level.
+  gradingScales  Json
+  // Analytics criteria controlled by the DOS.
+  passMark       Int      @default(50)
+  lowPerformanceThreshold Int @default(40)
+  lowPerformanceMinSubjects Int @default(2)
+  courseworkWeight Int    @default(40)
+  examWeight       Int    @default(60)
+  updatedAt      DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName    String
+  userRole    String
+  action      String
+  entity      String
+  entityId    String?
+  description String?
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([entity])
+}

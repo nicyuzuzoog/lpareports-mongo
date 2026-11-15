@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: lpacamis-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lpacamis
+      POSTGRES_PASSWORD: lpacamis
+      POSTGRES_DB: lpacamis
+    ports:
+      - "5432:5432"
+    volumes:
+      - lpacamis_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lpacamis -d lpacamis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  lpacamis_pgdata:
