@@ -9,6 +9,7 @@ export async function writeAudit(req, entry) {
     const user = req.user;
     await prisma.auditLog.create({
       data: {
+        campusId: user?.campusId || entry.campusId || 'MAIN',
         userId: user?.id || null,
         userName: user?.name || entry.userName || 'System',
         userRole: user?.role || entry.userRole || 'SYSTEM',

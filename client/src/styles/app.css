@@ -800,14 +800,55 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--brand-800);
 }
 
+.demo-group + .demo-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.demo-group-title {
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: var(--brand-800);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
 .demo-accounts button {
-  border: 0;
-  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
   color: var(--brand-700);
   font-size: 0.72rem;
-  padding: 0;
-  font-weight: 700;
-  text-decoration: underline;
+  padding: 5px 7px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.25;
+}
+
+.demo-accounts button:hover {
+  border-color: var(--brand-600);
+  background: #f4f8fc;
+}
+
+.demo-accounts .demo-role {
+  font-weight: 800;
+}
+
+.demo-accounts .demo-cred {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Misc ---------- */
@@ -1082,7 +1123,7 @@ h1, h2, h3, h4, h5, h6 {
   background: #fff;
   color: #1b2430;
   padding: 11mm 12mm 9mm;
-  box-shadow: 0 8px 30px rgba(16, 49, 79, 0.16);
+  border: 1px solid #d4dfea;
   font-family: 'Segoe UI', Arial, sans-serif;
   font-size: 10px;
   line-height: 1.35;
@@ -1126,6 +1167,15 @@ h1, h2, h3, h4, h5, h6 {
   margin: 0;
   color: #123a63;
   text-transform: uppercase;
+}
+
+.report-school .campus {
+  font-size: 9px;
+  font-weight: 700;
+  color: #123a63;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 2px 0 1px;
 }
 
 .report-school .motto {
@@ -1227,7 +1277,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .report-summary {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   background: #eef3f8;
   border-top: 1px solid #123a63;
   margin-top: 8px;
@@ -1258,13 +1308,38 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .grading-key {
-  margin-top: 7px;
-  font-size: 6.8px;
-  color: #5c6b7a;
+  margin-top: 8px;
 }
 
-.grading-key strong {
+.grading-key-title {
+  font-size: 6.8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: #123a63;
+  margin-bottom: 3px;
+}
+
+.grading-key-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 6.6px;
+  color: #1b2430;
+}
+
+.grading-key-table th,
+.grading-key-table td {
+  border: 1px solid #dfe5ec;
+  padding: 2px 3px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.grading-key-table th {
+  background: #123a63;
+  color: #fff;
+  font-size: 7px;
 }
 
 .report-comments {
@@ -1429,6 +1504,7 @@ h1, h2, h3, h4, h5, h6 {
 
   .report-table tr,
   .report-comment,
+  .grading-key,
   .report-signatures {
     page-break-inside: avoid;
   }

@@ -5,6 +5,7 @@ export function signToken(user) {
   return jwt.sign(
     {
       sub: user.id,
+      campusId: user.campusId,
       role: user.role,
       name: user.name,
       email: user.email

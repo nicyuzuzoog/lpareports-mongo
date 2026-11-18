@@ -1,12 +1,12 @@
 services:
   db:
     image: mongo:7
-    container_name: lpacamis-db
+    container_name: lpareports-db
     restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
-      - lpacamis_mongodb_data:/data/db
+      - lpareports_mongodb_data:/data/db
 
 volumes:
-  lpacamis_mongodb_data:
+  lpareports_mongodb_data:

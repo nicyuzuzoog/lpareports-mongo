@@ -309,8 +309,11 @@ export default function Settings() {
         <form onSubmit={saveSettings}>
           <div className="alert alert-info">
             <i className="bi bi-info-circle me-1" />
-            Each scale must cover 0 to 100 without overlapping bands. Bands are matched from the top
-            score down. Upper Primary uses D1–F9; Nursery and Lower Primary use A–U.
+            Rwandan primary bands apply to every section: A 70–100 (6 pts, Excellent), B 65–69
+            (5 pts, Very Good), C 60–64 (4 pts, Good), D 50–59 (3 pts, Satisfactory), E 40–49
+            (2 pts, Adequate), S 20–39 (1 pt, Fair), F 0–19 (0 pts, Fail). Higher points are better.
+            Each scale must cover 0 to 100 without overlapping bands; bands are matched from the top
+            score down.
           </div>
 
           {LEVELS.map((level) => (

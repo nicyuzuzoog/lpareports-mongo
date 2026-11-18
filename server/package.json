@@ -1,9 +1,9 @@
 {
-  "name": "lpacamis-server",
+  "name": "lpareports-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "LPACAMIS API - authentication, assessments, report cards, approvals, audit trail (MongoDB Atlas).",
+  "description": "LPAREPORTS API - authentication, assessments, report cards, approvals, audit trail (MongoDB Atlas).",
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",

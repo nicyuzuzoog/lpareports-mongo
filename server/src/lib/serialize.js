@@ -2,6 +2,7 @@ export function publicUser(user) {
   if (!user) return null;
   return {
     id: user.id,
+    campusId: user.campusId,
     name: user.name,
     email: user.email,
     phone: user.phone,

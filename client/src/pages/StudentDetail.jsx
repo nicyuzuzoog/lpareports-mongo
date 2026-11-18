@@ -4,7 +4,16 @@ import { api } from '../api/client.js';
 import PageHeader from '../components/PageHeader.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { EmptyState, ErrorAlert, Loading } from '../components/Feedback.jsx';
-import { average, formatDate, fullName, initials, levelLabel, percent, termLabel } from '../utils/format.js';
+import {
+  average,
+  classPosition,
+  formatDate,
+  fullName,
+  initials,
+  levelLabel,
+  percent,
+  termLabel
+} from '../utils/format.js';
 
 export default function StudentDetail() {
   const { id } = useParams();
@@ -111,6 +120,7 @@ export default function StudentDetail() {
                       <th>Class</th>
                       <th>Subjects</th>
                       <th>Average</th>
+                      <th>Position</th>
                       <th>Status</th>
                       <th className="text-end">Action</th>
                     </tr>
@@ -123,6 +133,7 @@ export default function StudentDetail() {
                         <td>{card.className}</td>
                         <td>{card.subjects}</td>
                         <td className="fw-650">{percent(card.average)}</td>
+                        <td className="fw-650">{classPosition(card.position, card.outOf)}</td>
                         <td><StatusBadge status={card.status} /></td>
                         <td className="text-end">
                           <Link to={`/reports/${card.id}`} className="btn btn-sm btn-outline-brand">

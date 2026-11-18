@@ -7,7 +7,7 @@ import Modal from '../components/Modal.jsx';
 import ReportCardView from '../components/ReportCardView.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { ErrorAlert, Loading } from '../components/Feedback.jsx';
-import { formatDateTime, gradeFromScale, levelLabel, termLabel } from '../utils/format.js';
+import { classPosition, formatDateTime, gradeFromScale, levelLabel, termLabel } from '../utils/format.js';
 
 export default function ReportDetail() {
   const { id } = useParams();
@@ -59,11 +59,9 @@ export default function ReportDetail() {
 
   const openDetails = () => {
     setDetails({
-      attendancePresent: report.attendance.present ?? '',
-      attendanceTotal: report.attendance.total ?? 64,
-      teacherComment: report.comments.teacher || '',
-      dosComment: report.comments.dos || '',
-      headComment: report.comments.headTeacher || ''
+      teacherComment: report.comments?.teacher || '',
+      dosComment: report.comments?.dos || '',
+      headComment: report.comments?.headTeacher || ''
     });
     setDetailsOpen(true);
   };
@@ -73,8 +71,6 @@ export default function ReportDetail() {
     setBusy('details');
     try {
       await api.patch(`/reports/${id}`, {
-        attendancePresent: details.attendancePresent === '' ? null : Number(details.attendancePresent),
-        attendanceTotal: details.attendanceTotal === '' ? null : Number(details.attendanceTotal),
         teacherComment: details.teacherComment || null,
         ...(isManager ? { dosComment: details.dosComment || null } : {}),
         ...(['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role) ? { headComment: details.headComment || null } : {})
@@ -254,9 +250,10 @@ export default function ReportDetail() {
             <i className="bi bi-patch-check" /> Approved by {report.approved.by} · {formatDateTime(report.approved.at)}
           </span>
         ) : null}
-        {report.attendance.percent !== null ? (
+        {report.summary?.position ? (
           <span className="term-pill">
-            <i className="bi bi-calendar-check" /> Attendance {report.attendance.percent}%
+            <i className="bi bi-trophy" /> Position{' '}
+            {classPosition(report.summary.position, report.summary.outOf)}
           </span>
         ) : null}
       </div>
@@ -292,26 +289,6 @@ export default function ReportDetail() {
       >
         <form id="details-form" onSubmit={saveDetails}>
           <div className="row g-3">
-            <div className="col-6">
-              <label className="form-label">Days present</label>
-              <input
-                type="number"
-                min="0"
-                className="form-control"
-                value={details.attendancePresent}
-                onChange={(event) => setDetails((prev) => ({ ...prev, attendancePresent: event.target.value }))}
-              />
-            </div>
-            <div className="col-6">
-              <label className="form-label">Total school days</label>
-              <input
-                type="number"
-                min="0"
-                className="form-control"
-                value={details.attendanceTotal}
-                onChange={(event) => setDetails((prev) => ({ ...prev, attendanceTotal: event.target.value }))}
-              />
-            </div>
             <div className="col-12">
               <label className="form-label">Class teacher's comment</label>
               <textarea

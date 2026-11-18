@@ -22,9 +22,14 @@ export async function authenticate(req, res, next) {
     });
 
     if (!user) return res.status(401).json({ message: 'Account no longer exists.' });
+    // A token issued for one campus must never be usable on another campus.
+    if (!payload.campusId || payload.campusId !== user.campusId) {
+      return res.status(401).json({ message: 'Session is not valid for this campus.' });
+    }
     if (!user.isActive) return res.status(403).json({ message: 'Account is deactivated. Contact the Super Admin.' });
 
     req.user = user;
+    req.user.campusId = user.campusId;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -59,27 +64,35 @@ export const canManageStudents = (user) =>
   ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER', 'TEACHER'].includes(user.role);
 
 export function teacherClassIds(user) {
-  return (user.classes || []).map((entry) => entry.classId);
+  return (user.classes || [])
+    .filter((entry) => (entry.campusId ?? entry.class?.campusId) === user.campusId)
+    .map((entry) => entry.classId);
 }
 
 export function teacherSubjectIds(user) {
-  return (user.subjects || []).map((entry) => entry.subjectId);
+  return (user.subjects || [])
+    .filter((entry) => (entry.campusId ?? entry.subject?.campusId) === user.campusId)
+    .map((entry) => entry.subjectId);
 }
 
 /**
- * Class ids the user may work with.
- * - Super Admin / Head Teacher: every class
+ * Class ids the user may work with, always restricted to their campus.
+ * - Super Admin / Head Teacher: every class on the campus
  * - DOS: primary classes only
  * - Teacher: assigned classes
  */
 export async function allowedClassIds(user) {
+  const campusId = user.campusId;
   if (['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role)) {
-    const classes = await prisma.schoolClass.findMany({ select: { id: true } });
+    const classes = await prisma.schoolClass.findMany({
+      where: { campusId },
+      select: { id: true }
+    });
     return classes.map((c) => c.id);
   }
   if (user.role === 'DOS') {
     const classes = await prisma.schoolClass.findMany({
-      where: { level: { in: ['LOWER_PRIMARY', 'UPPER_PRIMARY'] } },
+      where: { campusId, level: { in: ['LOWER_PRIMARY', 'UPPER_PRIMARY'] } },
       select: { id: true }
     });
     return classes.map((c) => c.id);

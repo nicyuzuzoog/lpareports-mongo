@@ -28,5 +28,21 @@ export const GENDERS = [
   { value: 'FEMALE', label: 'Female' }
 ];
 
+export const CAMPUSES = [
+  { value: 'MAIN', label: 'MAIN — LIGHT PEACE ACADEMY' },
+  { value: 'RULINDO', label: 'RULINDO — LIGHT PEACE ACADEMY RULINDO' }
+];
+
+// Rwandan primary grading bands. Higher points are better (A = 6, F = 0).
+export const RWANDA_GRADING = [
+  { grade: 'A', min: 70, max: 100, points: 6, remark: 'Excellent' },
+  { grade: 'B', min: 65, max: 69, points: 5, remark: 'Very Good' },
+  { grade: 'C', min: 60, max: 64, points: 4, remark: 'Good' },
+  { grade: 'D', min: 50, max: 59, points: 3, remark: 'Satisfactory' },
+  { grade: 'E', min: 40, max: 49, points: 2, remark: 'Adequate' },
+  { grade: 'S', min: 20, max: 39, points: 1, remark: 'Fair' },
+  { grade: 'F', min: 0, max: 19, points: 0, remark: 'Fail' }
+];
+
 export const currentYear = new Date().getFullYear();
 export const YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => currentYear - 3 + index);

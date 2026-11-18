@@ -49,7 +49,7 @@ const criteriaSchema = z.object({
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     res.json({ settings });
   })
 );
@@ -87,20 +87,20 @@ router.put(
       }
     }
 
-    const previous = await getSettings();
+    const previous = await getSettings(req.user.campusId);
     const updated = await prisma.setting.update({
-      where: { id: 1 },
+      where: { id: req.user.campusId },
       data: {
         ...data,
         gradingScales: data.gradingScales || previous.gradingScales || DEFAULT_GRADING_SCALES
       }
     });
-    clearSettingsCache();
+    clearSettingsCache(req.user.campusId);
 
     await writeAudit(req, {
       action: 'UPDATE',
       entity: 'Setting',
-      entityId: '1',
+      entityId: req.user.campusId,
       description: 'Updated school settings and grading configuration.',
       before: previous,
       after: updated
@@ -115,7 +115,7 @@ router.patch(
   requireRole('SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'),
   asyncHandler(async (req, res) => {
     const data = criteriaSchema.parse(req.body);
-    const previous = await getSettings();
+    const previous = await getSettings(req.user.campusId);
 
     const passMark = data.passMark ?? previous.passMark;
     const threshold = data.lowPerformanceThreshold ?? previous.lowPerformanceThreshold;
@@ -124,7 +124,7 @@ router.patch(
     }
 
     const updated = await prisma.setting.update({
-      where: { id: 1 },
+      where: { id: req.user.campusId },
       data: {
         passMark,
         lowPerformanceThreshold: threshold,
@@ -132,12 +132,12 @@ router.patch(
           data.lowPerformanceMinSubjects ?? previous.lowPerformanceMinSubjects
       }
     });
-    clearSettingsCache();
+    clearSettingsCache(req.user.campusId);
 
     await writeAudit(req, {
       action: 'UPDATE',
       entity: 'Setting',
-      entityId: '1',
+      entityId: req.user.campusId,
       description: 'Updated performance analysis criteria.',
       before: {
         passMark: previous.passMark,

@@ -16,14 +16,14 @@ export const config = {
   port: Number(process.env.PORT || 5000),
   // MongoDB Atlas connection string. MONGO_URI / DATABASE_URL are accepted aliases.
   databaseUrl: process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL,
-  jwtSecret: process.env.JWT_SECRET || 'lpacamis-development-secret-change-me',
+  jwtSecret: process.env.JWT_SECRET || 'lpareports-development-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   clientOrigins: origins,
   trustProxy: toBool(process.env.TRUST_PROXY, true),
   schoolLogoUrl: process.env.SCHOOL_LOGO_URL || ''
 };
 
-if (config.isProduction && config.jwtSecret === 'lpacamis-development-secret-change-me') {
+if (config.isProduction && config.jwtSecret === 'lpareports-development-secret-change-me') {
   // Refuse to boot with the development secret in production.
   throw new Error('JWT_SECRET must be set to a strong random value in production.');
 }

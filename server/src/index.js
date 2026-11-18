@@ -16,7 +16,7 @@ async function start() {
   }
 
   const server = app.listen(config.port, () => {
-    console.log(`LPACAMIS API listening on port ${config.port} (${config.env}).`);
+    console.log(`LPAREPORTS API listening on port ${config.port} (${config.env}).`);
   });
 
   const shutdown = async (signal) => {

@@ -74,7 +74,7 @@ const PAGE_META = [
 ];
 
 function titleFor(pathname) {
-  return PAGE_META.find((item) => item.match.test(pathname))?.title || 'LPACAMIS';
+  return PAGE_META.find((item) => item.match.test(pathname))?.title || 'LPAREPORTS';
 }
 
 export default function Layout() {
@@ -140,7 +140,7 @@ export default function Layout() {
         <div className="sidebar-brand">
           <img src={logo} alt="School logo" />
           <div>
-            <div className="brand-name">LPACAMIS</div>
+            <div className="brand-name">LPAREPORTS</div>
             <div className="brand-sub">Report System</div>
           </div>
         </div>

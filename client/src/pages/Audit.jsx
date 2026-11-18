@@ -113,7 +113,7 @@ export default function Audit() {
   const exportCsv = async () => {
     setExporting(true);
     try {
-      await download(`/audit/export?${queryString(false)}`, 'lpacamis-audit.csv');
+      await download(`/audit/export?${queryString(false)}`, 'lpareports-audit.csv');
       toast('Audit trail exported.');
     } catch (err) {
       toast(err.message, 'danger');

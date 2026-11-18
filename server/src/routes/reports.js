@@ -5,8 +5,8 @@ import { prisma } from '../lib/prisma.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
 import { getSettings } from '../lib/settings.js';
-import { computeTotal, gradeFor, assessmentCompetency, averageOf } from '../lib/grading.js';
-import { buildReportPayload, summariseMarks } from '../services/reportService.js';
+import { computeTotal, gradeFor, assessmentCompetency } from '../lib/grading.js';
+import { buildReportPayload, summariseMarks, positionsFor } from '../services/reportService.js';
 import { buildReportPdf, pdfFileName } from '../lib/pdf.js';
 import {
   authenticate,
@@ -29,8 +29,6 @@ const generateSchema = z.object({
 });
 
 const detailsSchema = z.object({
-  attendancePresent: z.number().int().min(0).nullable().optional(),
-  attendanceTotal: z.number().int().min(0).nullable().optional(),
   teacherComment: z.string().trim().max(600).nullable().optional(),
   dosComment: z.string().trim().max(600).nullable().optional(),
   headComment: z.string().trim().max(600).nullable().optional()
@@ -50,13 +48,16 @@ const marksSchema = z.object({
   )
 });
 
-async function loadReport(reportId) {
-  const report = await prisma.reportCard.findUnique({
-    where: { id: reportId },
+async function loadReport(reportId, campusId) {
+  const report = await prisma.reportCard.findFirst({
+    where: { id: reportId, campusId },
     include: {
       class: true,
       student: true,
-      marks: { include: { subject: true, teacher: { select: { name: true } } } }
+      marks: {
+        where: { campusId },
+        include: { subject: true, teacher: { select: { name: true } } }
+      }
     }
   });
   if (!report) throw notFound('Report card not found.');
@@ -64,7 +65,7 @@ async function loadReport(reportId) {
 }
 
 async function buildAndCheck(reportId, user) {
-  const report = await loadReport(reportId);
+  const report = await loadReport(reportId, user.campusId);
   await assertClassAccess(user, report.classId);
   return report;
 }
@@ -83,16 +84,18 @@ router.get(
       throw new HttpError(403, 'You do not have access to this class.');
     }
 
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const where = {
+      campusId: req.user.campusId,
       ...(classId ? { classId: String(classId) } : { classId: { in: accessible } }),
       ...(term ? { term } : {}),
       ...(year ? { year } : {}),
       ...(status ? { status: statusSchema.parse(status) } : {}),
-      ...(level ? { class: { level } } : {}),
+      ...(level ? { class: { level, campusId: req.user.campusId } } : {}),
       ...(search
         ? {
             student: {
+              campusId: req.user.campusId,
               OR: [
                 { firstName: { contains: String(search), mode: 'insensitive' } },
                 { lastName: { contains: String(search), mode: 'insensitive' } },
@@ -110,7 +113,7 @@ router.get(
         include: {
           student: true,
           class: true,
-          marks: true,
+          marks: { where: { campusId: req.user.campusId } },
           approvedBy: { select: { name: true } }
         },
         orderBy: [{ year: 'desc' }, { term: 'desc' }, { student: { lastName: 'asc' } }],
@@ -119,9 +122,37 @@ router.get(
       })
     ]);
 
+    // Rank once per distinct class/term/year instead of once per report card.
+    const groups = new Map();
+    for (const card of cards) {
+      const key = `${card.classId}|${card.term}|${card.year}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          classId: card.classId,
+          term: card.term,
+          year: card.year
+        });
+      }
+    }
+    const ranked = await Promise.all(
+      [...groups.values()].map(async (group) => [
+        `${group.classId}|${group.term}|${group.year}`,
+        await positionsFor(
+          req.user.campusId,
+          group.classId,
+          group.term,
+          group.year,
+          settings
+        )
+      ])
+    );
+    const positionsByGroup = new Map(ranked);
+
     res.json({
       reports: cards.map((card) => {
         const summary = summariseMarks(card.marks, card.class.level, settings);
+        const key = `${card.classId}|${card.term}|${card.year}`;
+        const ranking = positionsByGroup.get(key) || { positions: new Map(), outOf: 0 };
         return {
           id: card.id,
           student: {
@@ -139,6 +170,8 @@ router.get(
           average: summary.average,
           grade: summary.grade,
           subjectsAssessed: summary.subjectsAssessed,
+          position: ranking.positions.get(card.id) || null,
+          outOf: ranking.outOf,
           approvedBy: card.approvedBy?.name || null,
           updatedAt: card.updatedAt
         };
@@ -152,7 +185,7 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const report = await buildAndCheck(req.params.id, req.user);
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const payload = await buildReportPayload(report.id, settings);
     res.json({ report: payload });
   })
@@ -162,7 +195,7 @@ router.get(
   '/:id/pdf',
   asyncHandler(async (req, res) => {
     const report = await buildAndCheck(req.params.id, req.user);
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const payload = await buildReportPayload(report.id, settings);
     const buffer = await buildReportPdf(payload, settings);
 
@@ -179,18 +212,31 @@ router.post(
     const data = generateSchema.parse(req.body);
     await assertClassAccess(req.user, data.classId);
 
-    const schoolClass = await prisma.schoolClass.findUnique({ where: { id: data.classId } });
+    const schoolClass = await prisma.schoolClass.findFirst({
+      where: { id: data.classId, campusId: req.user.campusId }
+    });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
 
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const [students, subjects, existing] = await Promise.all([
-      prisma.student.findMany({ where: { classId: data.classId, isActive: true } }),
+      prisma.student.findMany({
+        where: { campusId: req.user.campusId, classId: data.classId, isActive: true }
+      }),
       prisma.subject.findMany({
-        where: { isActive: true, levels: { has: schoolClass.level } },
+        where: {
+          campusId: req.user.campusId,
+          isActive: true,
+          levels: { has: schoolClass.level }
+        },
         orderBy: { position: 'asc' }
       }),
       prisma.reportCard.findMany({
-        where: { classId: data.classId, term: data.term, year: data.year },
+        where: {
+          campusId: req.user.campusId,
+          classId: data.classId,
+          term: data.term,
+          year: data.year
+        },
         select: { studentId: true }
       })
     ]);
@@ -203,6 +249,7 @@ router.post(
       for (const student of toCreate) {
         const card = await tx.reportCard.create({
           data: {
+            campusId: req.user.campusId,
             studentId: student.id,
             classId: data.classId,
             term: data.term,
@@ -212,7 +259,11 @@ router.post(
         });
         if (subjects.length) {
           await tx.mark.createMany({
-            data: subjects.map((subject) => ({ reportCardId: card.id, subjectId: subject.id }))
+            data: subjects.map((subject) => ({
+              campusId: req.user.campusId,
+              reportCardId: card.id,
+              subjectId: subject.id
+            }))
           });
         }
         created += 1;
@@ -224,7 +275,13 @@ router.post(
       entity: 'ReportCard',
       entityId: `${data.classId}:${data.term}:${data.year}`,
       description: `Generated ${created} report card(s) for ${schoolClass.name}, ${data.term} ${data.year}. ${students.length - created} already existed.`,
-      after: { classId: data.classId, term: data.term, year: data.year, created }
+      after: {
+        campusId: req.user.campusId,
+        classId: data.classId,
+        term: data.term,
+        year: data.year,
+        created
+      }
     });
 
     res.status(201).json({
@@ -246,14 +303,7 @@ router.patch(
       throw new HttpError(403, 'This report is approved and can only be edited by the DOS or Head Teacher.');
     }
 
-    const nextPresent =
-      data.attendancePresent === undefined ? report.attendancePresent : data.attendancePresent;
-    const nextTotal = data.attendanceTotal === undefined ? report.attendanceTotal : data.attendanceTotal;
-    if (nextPresent !== null && nextTotal !== null && nextPresent > nextTotal) {
-      throw new HttpError(400, 'Days present cannot be more than the total school days.');
-    }
-
-    const update = { attendancePresent: nextPresent, attendanceTotal: nextTotal };
+    const update = { campusId: req.user.campusId };
     if (['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER', 'TEACHER'].includes(req.user.role)) {
       if (data.teacherComment !== undefined) update.teacherComment = data.teacherComment || null;
     }
@@ -265,7 +315,7 @@ router.patch(
     }
 
     const updated = await prisma.reportCard.update({
-      where: { id: report.id },
+      where: { id: report.id, campusId: req.user.campusId },
       data: update
     });
 
@@ -275,8 +325,7 @@ router.patch(
       entityId: report.id,
       description: `Updated report details for ${report.student.firstName} ${report.student.lastName} (${report.term} ${report.year}).`,
       before: {
-        attendancePresent: report.attendancePresent,
-        attendanceTotal: report.attendanceTotal,
+        campusId: req.user.campusId,
         teacherComment: report.teacherComment,
         dosComment: report.dosComment,
         headComment: report.headComment
@@ -297,8 +346,9 @@ router.post(
     if (!assessed) throw new HttpError(400, 'Record at least one assessment score before submitting.');
 
     await prisma.reportCard.update({
-      where: { id: report.id },
+      where: { id: report.id, campusId: req.user.campusId },
       data: {
+        campusId: req.user.campusId,
         status: 'SUBMITTED',
         submittedById: req.user.id,
         submittedAt: new Date(),
@@ -330,8 +380,9 @@ router.post(
     if (!assessed) throw new HttpError(400, 'This report has no assessment scores to approve.');
 
     await prisma.reportCard.update({
-      where: { id: report.id },
+      where: { id: report.id, campusId: req.user.campusId },
       data: {
+        campusId: req.user.campusId,
         status: 'APPROVED',
         approvedById: req.user.id,
         approvedAt: new Date()
@@ -360,8 +411,9 @@ router.post(
     const report = await buildAndCheck(req.params.id, req.user);
 
     await prisma.reportCard.update({
-      where: { id: report.id },
+      where: { id: report.id, campusId: req.user.campusId },
       data: {
+        campusId: req.user.campusId,
         status: 'DRAFT',
         approvedById: null,
         approvedAt: null,
@@ -374,8 +426,8 @@ router.post(
       entity: 'ReportCard',
       entityId: report.id,
       description: `Returned report to draft for ${report.student.firstName} ${report.student.lastName}, ${report.term} ${report.year}.`,
-      before: { status: report.status },
-      after: { status: 'DRAFT', comment: comment || null }
+      before: { campusId: req.user.campusId, status: report.status },
+      after: { campusId: req.user.campusId, status: 'DRAFT', comment: comment || null }
     });
 
     res.json({ message: 'Report returned to draft.' });
@@ -390,10 +442,13 @@ router.patch(
     }
     const { marks } = marksSchema.parse(req.body);
     const report = await buildAndCheck(req.params.id, req.user);
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
 
     const subjects = await prisma.subject.findMany({
-      where: { id: { in: marks.map((mark) => mark.subjectId) } }
+      where: {
+        id: { in: marks.map((mark) => mark.subjectId) },
+        campusId: req.user.campusId
+      }
     });
     const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
 
@@ -409,9 +464,11 @@ router.patch(
 
         await tx.mark.upsert({
           where: {
-            reportCardId_subjectId: { reportCardId: report.id, subjectId: entry.subjectId }
+            reportCardId_subjectId: { reportCardId: report.id, subjectId: entry.subjectId },
+            campusId: req.user.campusId
           },
           update: {
+            campusId: req.user.campusId,
             caScore: Number.isNaN(ca) ? null : ca,
             examScore: Number.isNaN(exam) ? null : exam,
             total,
@@ -421,6 +478,7 @@ router.patch(
             teacherId: req.user.id
           },
           create: {
+            campusId: req.user.campusId,
             reportCardId: report.id,
             subjectId: entry.subjectId,
             caScore: Number.isNaN(ca) ? null : ca,
@@ -452,14 +510,19 @@ router.delete(
   requireDeletePermission,
   asyncHandler(async (req, res) => {
     const report = await buildAndCheck(req.params.id, req.user);
-    await prisma.reportCard.delete({ where: { id: report.id } });
+    await prisma.reportCard.delete({ where: { id: report.id, campusId: req.user.campusId } });
 
     await writeAudit(req, {
       action: 'DELETE',
       entity: 'ReportCard',
       entityId: report.id,
       description: `Deleted report card for ${report.student.firstName} ${report.student.lastName}, ${report.term} ${report.year}.`,
-      before: { studentId: report.studentId, term: report.term, year: report.year }
+      before: {
+        campusId: req.user.campusId,
+        studentId: report.studentId,
+        term: report.term,
+        year: report.year
+      }
     });
 
     res.json({ message: 'Report card deleted.' });
@@ -475,11 +538,14 @@ router.post(
     const data = generateSchema.extend({ status: statusSchema.optional() }).parse(req.body);
     await assertClassAccess(req.user, data.classId);
 
-    const schoolClass = await prisma.schoolClass.findUnique({ where: { id: data.classId } });
+    const schoolClass = await prisma.schoolClass.findFirst({
+      where: { id: data.classId, campusId: req.user.campusId }
+    });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
 
     const cards = await prisma.reportCard.findMany({
       where: {
+        campusId: req.user.campusId,
         classId: data.classId,
         term: data.term,
         year: data.year,
@@ -490,7 +556,7 @@ router.post(
     });
     if (!cards.length) throw new HttpError(404, 'No report cards found for this class and term.');
 
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const payloads = [];
     for (const card of cards) {
       payloads.push(await buildReportPayload(card.id, settings));
@@ -519,7 +585,11 @@ router.post(
       entity: 'ReportCard',
       entityId: `${data.classId}:${data.term}:${data.year}`,
       description: `Downloaded ${payloads.length} report card PDF(s) for ${schoolClass.name}, ${data.term} ${data.year}.`,
-      after: { count: payloads.length, status: data.status || 'ALL' }
+      after: {
+        campusId: req.user.campusId,
+        count: payloads.length,
+        status: data.status || 'ALL'
+      }
     });
   })
 );

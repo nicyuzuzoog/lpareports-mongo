@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: lpacamis-api
+    name: lpareports-api
     runtime: node
     plan: free
     region: oregon
@@ -11,7 +11,7 @@ services:
     autoDeploy: true
     envVars:
       # Paste the MongoDB Atlas connection string when the blueprint asks.
-      # Include the database name, e.g. mongodb+srv://user:pass@cluster.mongodb.net/lpacamis
+      # Include the database name, e.g. mongodb+srv://user:pass@cluster.mongodb.net/lpareports
       - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET

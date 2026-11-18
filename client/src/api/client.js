@@ -1,6 +1,14 @@
 const rawBase = import.meta.env.VITE_API_URL || '/api';
 export const API_BASE = rawBase.replace(/\/$/, '');
-const TOKEN_KEY = 'lpacamis_token';
+const TOKEN_KEY = 'lpareports_token';
+const LEGACY_TOKEN_KEY = 'lpacamis_token';
+
+// Drop sessions created by the old Lpacamis build so they log out cleanly.
+try {
+  if (localStorage.getItem(LEGACY_TOKEN_KEY)) localStorage.removeItem(LEGACY_TOKEN_KEY);
+} catch {
+  // localStorage may be unavailable (e.g. privacy mode); the new key is simply used.
+}
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token) => {

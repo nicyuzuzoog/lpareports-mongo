@@ -6,7 +6,7 @@ import PageHeader from '../components/PageHeader.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { EmptyState, ErrorAlert, Loading, Pagination } from '../components/Feedback.jsx';
 import { TERMS, YEAR_OPTIONS, currentYear } from '../utils/constants.js';
-import { percent, termLabel } from '../utils/format.js';
+import { classPosition, percent, termLabel } from '../utils/format.js';
 
 export default function Approvals() {
   const { show: toast } = useToast();
@@ -143,6 +143,7 @@ export default function Approvals() {
                   <th>Class</th>
                   <th>Term</th>
                   <th>Average</th>
+                  <th>Position</th>
                   <th>Status</th>
                   <th className="text-end">Actions</th>
                 </tr>
@@ -157,6 +158,7 @@ export default function Approvals() {
                     <td>{report.className}</td>
                     <td>{termLabel(report.term)} · {report.year}</td>
                     <td className="fw-650">{percent(report.average)}</td>
+                    <td className="fw-650">{classPosition(report.position, report.outOf)}</td>
                     <td><StatusBadge status={report.status} /></td>
                     <td className="text-end">
                       <div className="d-inline-flex gap-1">

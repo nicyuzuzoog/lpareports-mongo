@@ -6,8 +6,8 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 const router = Router();
 router.use(authenticate, requireRole('SUPER_ADMIN'));
 
-function buildWhere(query) {
-  const where = {};
+function buildWhere(query, campusId) {
+  const where = { campusId };
   if (query.action) where.action = String(query.action);
   if (query.entity) where.entity = String(query.entity);
   if (query.userId) where.userId = String(query.userId);
@@ -38,7 +38,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const page = Math.max(1, Number(req.query.page || 1));
     const pageSize = Math.min(200, Math.max(10, Number(req.query.pageSize || 30)));
-    const where = buildWhere(req.query);
+    const where = buildWhere(req.query, req.user.campusId);
 
     const [total, logs] = await Promise.all([
       prisma.auditLog.count({ where }),
@@ -60,7 +60,7 @@ router.get(
 router.get(
   '/export',
   asyncHandler(async (req, res) => {
-    const where = buildWhere(req.query);
+    const where = buildWhere(req.query, req.user.campusId);
     const logs = await prisma.auditLog.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -93,7 +93,7 @@ router.get(
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="lpacamis-audit-${new Date().toISOString().slice(0, 10)}.csv"`
+      `attachment; filename="lpareports-audit-${new Date().toISOString().slice(0, 10)}.csv"`
     );
     res.send(csv);
   })

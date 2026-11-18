@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import {
+  CAMPUSES,
   averageOf,
   gradeFor,
   ordinal,
@@ -43,39 +44,51 @@ export function markRows(report, settings) {
         total: mark.total,
         grade: gradeInfo.grade,
         remark: gradeInfo.remark,
+        points: gradeInfo.points,
         competency: mark.competency || null,
         teacher: mark.teacher ? mark.teacher.name : null
       };
     });
 }
 
-async function positionsFor(classId, term, year, settings) {
+/**
+ * Strict class ranking for one campus/class/term/year.
+ * Positions are 1,2,3...N (no shared ranks): average descending, then total
+ * marks descending, then student code ascending. Cards without an assessed
+ * mark are excluded entirely.
+ */
+export async function positionsFor(campusId, classId, term, year, settings) {
+  const campusKey = campusId || 'MAIN';
   const cards = await prisma.reportCard.findMany({
-    where: { classId, term, year },
+    where: { campusId: campusKey, classId, term, year },
     include: {
       marks: true,
       class: true,
-      student: { select: { id: true, firstName: true, lastName: true } }
+      student: { select: { id: true, code: true } }
     }
   });
 
   const ranked = cards
+    .filter((card) => !card.campusId || card.campusId === campusKey)
     .map((card) => {
-      const average = summariseMarks(card.marks, card.class?.level || 'LOWER_PRIMARY', settings).average;
-      return { id: card.id, average };
+      const summary = summariseMarks(card.marks, card.class?.level || 'LOWER_PRIMARY', settings);
+      return {
+        id: card.id,
+        average: summary.average,
+        totalMarks: summary.totalMarks,
+        subjectsAssessed: summary.subjectsAssessed,
+        code: card.student?.code || ''
+      };
     })
-    .filter((entry) => entry.average !== null)
-    .sort((a, b) => b.average - a.average);
+    .filter((entry) => entry.average !== null && entry.subjectsAssessed !== 0)
+    .sort((a, b) =>
+      b.average - a.average ||
+      b.totalMarks - a.totalMarks ||
+      String(a.code).localeCompare(String(b.code))
+    );
 
   const positions = new Map();
-  let lastAverage = null;
-  let lastPosition = 0;
-  ranked.forEach((entry, index) => {
-    const position = entry.average === lastAverage ? lastPosition : index + 1;
-    positions.set(entry.id, position);
-    lastAverage = entry.average;
-    lastPosition = position;
-  });
+  ranked.forEach((entry, index) => positions.set(entry.id, index + 1));
 
   return { positions, outOf: ranked.length };
 }
@@ -94,16 +107,23 @@ export async function buildReportPayload(reportId, settings) {
 
   if (!report) return null;
 
+  const campus = CAMPUSES[report.campusId] || CAMPUSES.MAIN;
   const level = report.class.level;
   const marks = markRows(report, settings);
   const summary = summariseMarks(report.marks, level, settings);
-  const { positions, outOf } = await positionsFor(report.classId, report.term, report.year, settings);
+  const { positions, outOf } = await positionsFor(
+    report.campusId || campus.id,
+    report.classId,
+    report.term,
+    report.year,
+    settings
+  );
   const position = positions.get(report.id) || null;
 
   let cumulative = null;
   if (report.term === 'TERM3') {
     const yearCards = await prisma.reportCard.findMany({
-      where: { studentId: report.studentId, year: report.year },
+      where: { campusId: campus.id, studentId: report.studentId, year: report.year },
       include: {
         marks: { include: { subject: true } },
         class: true
@@ -171,14 +191,7 @@ export async function buildReportPayload(reportId, settings) {
     status: report.status,
     className: report.class.name,
     level,
-    attendance: {
-      present: report.attendancePresent,
-      total: report.attendanceTotal,
-      percent:
-        report.attendancePresent !== null && report.attendanceTotal
-          ? Math.round((report.attendancePresent / report.attendanceTotal) * 100)
-          : null
-    },
+    campusId: campus.id,
     student: {
       id: report.student.id,
       code: report.student.code,
@@ -217,9 +230,13 @@ export async function buildReportPayload(reportId, settings) {
       ? { by: report.approvedBy.name, at: report.approvedAt }
       : null,
     school: {
-      name: settings.schoolName,
+      name: campus.name,
+      campusId: campus.id,
+      campusName: campus.name,
+      campusShort: campus.short,
+      campusLocation: campus.location,
       motto: settings.schoolMotto,
-      address: settings.schoolAddress,
+      address: settings.schoolAddress || campus.location,
       phone: settings.schoolPhone,
       email: settings.schoolEmail,
       headTeacherName: settings.headTeacherName,

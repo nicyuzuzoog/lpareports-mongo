@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { asyncHandler } from '../lib/http.js';
 import { getSettings } from '../lib/settings.js';
 import { averageOf, gradeFor } from '../lib/grading.js';
-import { summariseMarks } from '../services/reportService.js';
+import { summariseMarks, positionsFor } from '../services/reportService.js';
 import { allowedClassIds, authenticate } from '../middleware/auth.js';
 
 const router = Router();
@@ -13,14 +13,17 @@ router.use(authenticate);
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const year = Number(req.query.year || new Date().getFullYear());
     const accessible = await allowedClassIds(req.user);
 
     const classes = await prisma.schoolClass.findMany({
-      where: { id: { in: accessible } },
+      where: { id: { in: accessible }, campusId: req.user.campusId },
       include: {
-        students: { where: { isActive: true }, select: { id: true } },
+        students: {
+          where: { isActive: true, campusId: req.user.campusId },
+          select: { id: true }
+        },
         classTeacher: { select: { name: true } }
       },
       orderBy: [{ level: 'asc' }, { name: 'asc' }]
@@ -29,16 +32,18 @@ router.get(
 
     const [cards, teacherCount] = await Promise.all([
       prisma.reportCard.findMany({
-        where: { classId: { in: classIds }, year },
+        where: { classId: { in: classIds }, campusId: req.user.campusId, year },
         include: {
           student: true,
           class: true,
-          marks: true,
+          marks: { where: { campusId: req.user.campusId } },
           approvedBy: { select: { name: true } }
         },
         orderBy: { updatedAt: 'desc' }
       }),
-      prisma.user.count({ where: { role: 'TEACHER', isActive: true } })
+      prisma.user.count({
+        where: { role: 'TEACHER', isActive: true, campusId: req.user.campusId }
+      })
     ]);
 
     const pending = cards.filter((card) => card.status === 'SUBMITTED');
@@ -74,8 +79,36 @@ router.get(
       };
     });
 
-    const recent = cards.slice(0, 6).map((card) => {
+    const recentCards = cards.slice(0, 6);
+    const rankGroups = new Map();
+    for (const card of recentCards) {
+      const key = `${card.classId}|${card.term}|${card.year}`;
+      if (!rankGroups.has(key)) {
+        rankGroups.set(key, {
+          classId: card.classId,
+          term: card.term,
+          year: card.year
+        });
+      }
+    }
+    const rankedGroups = await Promise.all(
+      [...rankGroups.values()].map(async (group) => [
+        `${group.classId}|${group.term}|${group.year}`,
+        await positionsFor(
+          req.user.campusId,
+          group.classId,
+          group.term,
+          group.year,
+          settings
+        )
+      ])
+    );
+    const positionsByGroup = new Map(rankedGroups);
+
+    const recent = recentCards.map((card) => {
       const summary = summariseMarks(card.marks, card.class.level, settings);
+      const key = `${card.classId}|${card.term}|${card.year}`;
+      const ranking = positionsByGroup.get(key) || { positions: new Map(), outOf: 0 };
       return {
         id: card.id,
         student: {
@@ -90,7 +123,9 @@ router.get(
         year: card.year,
         status: card.status,
         average: summary.average,
-        grade: gradeFor(summary.average, card.class.level, settings).grade
+        grade: gradeFor(summary.average, card.class.level, settings).grade,
+        position: ranking.positions.get(card.id) || null,
+        outOf: ranking.outOf
       };
     });
 
@@ -112,6 +147,7 @@ router.get(
     let recentAudit = [];
     if (req.user.role === 'SUPER_ADMIN') {
       recentAudit = await prisma.auditLog.findMany({
+        where: { campusId: req.user.campusId },
         orderBy: { createdAt: 'desc' },
         take: 8,
         select: {

@@ -33,10 +33,10 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const data = await api.post('/auth/login', { email, password });
+  const login = useCallback(async (email, password, campusId) => {
+    const data = await api.post('/auth/login', { email, password, campusId });
     setToken(data.token);
-    setUser(data.user);
+    setUser({ ...data.user, campusId: data.user?.campusId ?? campusId ?? null });
     return data.user;
   }, []);
 
@@ -54,6 +54,7 @@ export function AuthProvider({ children }) {
   const value = useMemo(
     () => ({
       user,
+      campusId: user?.campusId ?? null,
       loading,
       login,
       logout,

@@ -48,24 +48,24 @@ const include = {
   subjects: { include: { subject: true } }
 };
 
-async function assertTeacherAssignments(role, classIds, subjectIds) {
+async function assertTeacherAssignments(campusId, role, classIds, subjectIds) {
   if (role !== 'TEACHER') return;
   if (!classIds.length) throw new HttpError(400, 'Select at least one class for this teacher.');
   if (!subjectIds.length) throw new HttpError(400, 'Select at least one subject for this teacher.');
 
   const [classes, subjects] = await Promise.all([
-    prisma.schoolClass.count({ where: { id: { in: classIds } } }),
-    prisma.subject.count({ where: { id: { in: subjectIds } } })
+    prisma.schoolClass.count({ where: { campusId, id: { in: classIds } } }),
+    prisma.subject.count({ where: { campusId, id: { in: subjectIds } } })
   ]);
   if (classes !== classIds.length) throw new HttpError(400, 'One or more selected classes do not exist.');
   if (subjects !== subjectIds.length) throw new HttpError(400, 'One or more selected subjects do not exist.');
 }
 
-async function assertNotLastSuperAdmin(userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+async function assertNotLastSuperAdmin(userId, campusId) {
+  const user = await prisma.user.findUnique({ where: { id: userId, campusId } });
   if (!user || user.role !== 'SUPER_ADMIN' || !user.isActive) return;
   const remaining = await prisma.user.count({
-    where: { role: 'SUPER_ADMIN', isActive: true, id: { not: userId } }
+    where: { campusId, role: 'SUPER_ADMIN', isActive: true, id: { not: userId } }
   });
   if (remaining === 0) throw new HttpError(400, 'At least one active Super Admin must remain.');
 }
@@ -75,7 +75,7 @@ router.get(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const { role, search, status } = req.query;
-    const where = {};
+    const where = { campusId: req.user.campusId };
     if (role) where.role = role;
     if (status === 'active') where.isActive = true;
     if (status === 'inactive') where.isActive = false;
@@ -101,21 +101,23 @@ router.post(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
-    await assertTeacherAssignments(data.role, data.classIds, data.subjectIds);
+    const campusId = req.user.campusId;
+    await assertTeacherAssignments(campusId, data.role, data.classIds, data.subjectIds);
 
-    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+    const existing = await prisma.user.findUnique({ where: { campusId, email: data.email } });
     if (existing) throw new HttpError(409, 'A user with this email already exists.');
 
     const user = await prisma.user.create({
       data: {
+        campusId,
         name: data.name,
         email: data.email,
         phone: data.phone || null,
         passwordHash: await bcrypt.hash(data.password, 10),
         role: data.role,
         canDelete: data.canDelete === true,
-        classes: { create: data.classIds.map((classId) => ({ classId })) },
-        subjects: { create: data.subjectIds.map((subjectId) => ({ subjectId })) }
+        classes: { create: data.classIds.map((classId) => ({ campusId, classId })) },
+        subjects: { create: data.subjectIds.map((subjectId) => ({ campusId, subjectId })) }
       },
       include
     });
@@ -137,18 +139,22 @@ router.patch(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
-    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, include });
+    const campusId = req.user.campusId;
+    const existing = await prisma.user.findUnique({
+      where: { id: req.params.id, campusId },
+      include
+    });
     if (!existing) throw notFound('User not found.');
 
     const nextRole = data.role ?? existing.role;
     const nextClassIds = data.classIds ?? existing.classes.map((entry) => entry.classId);
     const nextSubjectIds = data.subjectIds ?? existing.subjects.map((entry) => entry.subjectId);
-    await assertTeacherAssignments(nextRole, nextClassIds, nextSubjectIds);
+    await assertTeacherAssignments(campusId, nextRole, nextClassIds, nextSubjectIds);
 
-    if (data.role && data.role !== 'SUPER_ADMIN') await assertNotLastSuperAdmin(existing.id);
-    if (data.isActive === false) await assertNotLastSuperAdmin(existing.id);
+    if (data.role && data.role !== 'SUPER_ADMIN') await assertNotLastSuperAdmin(existing.id, campusId);
+    if (data.isActive === false) await assertNotLastSuperAdmin(existing.id, campusId);
     if (data.email && data.email !== existing.email) {
-      const duplicate = await prisma.user.findUnique({ where: { email: data.email } });
+      const duplicate = await prisma.user.findUnique({ where: { campusId, email: data.email } });
       if (duplicate) throw new HttpError(409, 'A user with this email already exists.');
     }
     if (existing.id === req.user.id && data.isActive === false) {
@@ -156,6 +162,7 @@ router.patch(
     }
 
     const update = {
+      campusId,
       name: data.name ?? existing.name,
       email: data.email ?? existing.email,
       phone: data.phone === undefined ? existing.phone : data.phone || null,
@@ -166,14 +173,14 @@ router.patch(
     if (data.password) update.passwordHash = await bcrypt.hash(data.password, 10);
 
     const user = await prisma.user.update({
-      where: { id: existing.id },
+      where: { id: existing.id, campusId },
       data: {
         ...update,
         ...(data.classIds
-          ? { classes: { deleteMany: {}, create: data.classIds.map((classId) => ({ classId })) } }
+          ? { classes: { deleteMany: {}, create: data.classIds.map((classId) => ({ campusId, classId })) } }
           : {}),
         ...(data.subjectIds
-          ? { subjects: { deleteMany: {}, create: data.subjectIds.map((subjectId) => ({ subjectId })) } }
+          ? { subjects: { deleteMany: {}, create: data.subjectIds.map((subjectId) => ({ campusId, subjectId })) } }
           : {})
       },
       include
@@ -200,12 +207,16 @@ router.patch(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const { canDelete } = permissionSchema.parse(req.body);
-    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, include });
+    const campusId = req.user.campusId;
+    const existing = await prisma.user.findUnique({
+      where: { id: req.params.id, campusId },
+      include
+    });
     if (!existing) throw notFound('User not found.');
 
     const user = await prisma.user.update({
-      where: { id: existing.id },
-      data: { canDelete },
+      where: { id: existing.id, campusId },
+      data: { campusId, canDelete },
       include
     });
 
@@ -225,12 +236,16 @@ router.delete(
   '/:id',
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, include });
+    const campusId = req.user.campusId;
+    const existing = await prisma.user.findUnique({
+      where: { id: req.params.id, campusId },
+      include
+    });
     if (!existing) throw notFound('User not found.');
     if (existing.id === req.user.id) throw new HttpError(400, 'You cannot delete your own account.');
-    await assertNotLastSuperAdmin(existing.id);
+    await assertNotLastSuperAdmin(existing.id, campusId);
 
-    await prisma.user.delete({ where: { id: existing.id } });
+    await prisma.user.delete({ where: { id: existing.id, campusId } });
 
     await writeAudit(req, {
       action: 'DELETE',

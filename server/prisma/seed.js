@@ -1,8 +1,10 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/lib/prisma.js';
+import { models } from '../src/models/index.js';
 import {
-  DEFAULT_SETTINGS,
+  CAMPUSES,
+  defaultSettingsFor,
   computeTotal,
   gradeFor,
   assessmentCompetency
@@ -34,7 +36,7 @@ const SUBJECTS = [
   { name: 'Creative Arts', code: 'ART', levels: ['NURSERY'], position: 4 },
   { name: 'Health & Habits', code: 'HLTH', levels: ['NURSERY'], position: 5 },
   { name: 'Social Development', code: 'SOC', levels: ['NURSERY'], position: 6 },
-  { name: 'Swahili', code: 'SWA', levels: ['NURSERY', 'LOWER_PRIMARY', 'UPPER_PRIMARY'], position: 7 },
+  { name: 'Kinyarwanda', code: 'KIN', levels: ['NURSERY', 'LOWER_PRIMARY', 'UPPER_PRIMARY'], position: 7 },
   { name: 'English', code: 'ENG', levels: ['LOWER_PRIMARY', 'UPPER_PRIMARY'], position: 1 },
   { name: 'Mathematics', code: 'MATH', levels: ['LOWER_PRIMARY', 'UPPER_PRIMARY'], position: 2 },
   { name: 'Literacy', code: 'LIT', levels: ['LOWER_PRIMARY'], position: 3 },
@@ -54,274 +56,242 @@ const SUBJECTS = [
   { name: 'Physical Education', code: 'PE', levels: ['UPPER_PRIMARY'], position: 12 }
 ];
 
-const STUDENT_NAMES = [
-  ['Aisha', 'Nabirye'],
-  ['Brian', 'Okello'],
-  ['Cynthia', 'Namutebi'],
-  ['Daniel', 'Mugisha'],
-  ['Esther', 'Achieng'],
-  ['Farouk', 'Ssemwanga'],
-  ['Grace', 'Atim'],
-  ['Hakim', 'Kizza'],
-  ['Irene', 'Nakato'],
-  ['Joel', 'Byaruhanga'],
-  ['Kevin', 'Otieno'],
-  ['Lydia', 'Nansubuga'],
-  ['Martin', 'Tumusiime'],
-  ['Nadia', 'Nakimuli'],
-  ['Oscar', 'Odongo'],
-  ['Patience', 'Auma'],
-  ['Quinton', 'Ssekandi'],
-  ['Rita', 'Nabukenya'],
-  ['Samuel', 'Wasswa'],
-  ['Teddy', 'Nalubega'],
-  ['Umar', 'Kakooza'],
-  ['Vivian', 'Nakalema'],
-  ['Wilson', 'Ochieng'],
-  ['Xenia', 'Nabatanzi'],
-  ['Yusuf', 'Mukasa'],
-  ['Zara', 'Namatovu'],
-  ['Aaron', 'Kibet'],
-  ['Betty', 'Nakiganda'],
-  ['Charles', 'Ouma'],
-  ['Doreen', 'Nakamya'],
-  ['Edwin', 'Ssentongo'],
-  ['Faith', 'Akello'],
-  ['Godfrey', 'Mubiru'],
-  ['Harriet', 'Nabukalu'],
-  ['Isaac', 'Omondi'],
-  ['Janet', 'Nakayiza'],
-  ['Kato', 'Ssemakula'],
-  ['Lilian', 'Nabirye'],
-  ['Moses', 'Kaggwa'],
-  ['Nancy', 'Amino'],
-  ['Peter', 'Ocen'],
-  ['Rehema', 'Nansamba'],
-  ['Simon', 'Walusimbi'],
-  ['Tracy', 'Nakato'],
-  ['Uganda', 'Mukasa'],
-  ['Vera', 'Nabulya'],
-  ['Wasswa', 'Kizito'],
-  ['Yasmin', 'Nabukeera'],
-  ['Zachary', 'Okumu'],
-  ['Agnes', 'Nakabugo'],
-  ['Ben', 'Ssekabira'],
-  ['Clara', 'Nabbanja'],
-  ['Duncan', 'Mugerwa'],
-  ['Eunice', 'Nakimera'],
-  ['Fred', 'Kato'],
-  ['Gloria', 'Nakintu'],
-  ['Henry', 'Ssemujju'],
-  ['Ivy', 'Nabaggala']
+const FIRST_NAMES = [
+  'Aline', 'Bertrand', 'Chantal', 'David', 'Esperance', 'Fabrice', 'Gloria', 'Herve', 'Irene', 'Jean',
+  'Clarisse', 'Kevin', 'Lydie', 'Moses', 'Nadine', 'Olivier', 'Patience', 'Quentin', 'Rosine', 'Samuel',
+  'Teresa', 'Uwitonze', 'Valerie', 'Wilfried', 'Yvonne', 'Zacharie', 'Alice', 'Eric', 'Diane', 'Claudine',
+  'Grace', 'Emmanuel', 'Brigitte', 'Celine', 'Dorothee', 'Edmond', 'Felicie', 'Gaspard', 'Hortense', 'Innocent',
+  'Jacqueline', 'Kizito', 'Lea', 'Marcel', 'Nicole', 'Pacifique', 'Rebecca', 'Saidi', 'Sylvie', 'Thierry',
+  'Valens', 'Viateur', 'Yolande', 'Adrien', 'Beatrice', 'Celestin', 'Delphine', 'Elie'
 ];
 
+const LAST_NAMES = [
+  'Mukamana', 'Nkurunziza', 'Uwimana', 'Habimana', 'Niyonsaba',
+  'Nsengiyumva', 'Umuhoza', 'Mutesi', 'Irakoze', 'Ndayisaba'
+];
+
+const STUDENT_NAMES = FIRST_NAMES.map((first, index) => [first, LAST_NAMES[index % LAST_NAMES.length]]);
 const DEMO_CLASSES = ['Top Class', 'P.1', 'P.4', 'P.7'];
 
-function fakeScore(seed) {
-  const value = 32 + ((seed * 7919 + 11) % 61);
-  return Math.min(98, Math.max(18, value));
+const STAFF_LOCALS = [
+  'superadmin', 'dos', 'head', 'teacher', 'teacher2', 'teacher3', 'teacher4'
+];
+
+const STAFF_ROLES = {
+  superadmin: 'SUPER_ADMIN',
+  dos: 'DOS',
+  head: 'HEAD_TEACHER',
+  teacher: 'TEACHER',
+  teacher2: 'TEACHER',
+  teacher3: 'TEACHER',
+  teacher4: 'TEACHER'
+};
+
+const STAFF_PASSWORDS = {
+  superadmin: 'Admin@1234',
+  dos: 'Dos@12345',
+  head: 'Head@12345',
+  teacher: 'Teacher@123',
+  teacher2: 'Teacher@123',
+  teacher3: 'Teacher@123',
+  teacher4: 'Teacher@123'
+};
+
+const STAFF_NAMES = {
+  MAIN: {
+    superadmin: 'Super Admin',
+    dos: 'Ms. Mukamana Grace',
+    head: 'Mr. Nkurunziza Emmanuel',
+    teacher: 'Ms. Umuhoza Alice',
+    teacher2: 'Mr. Nsengiyumva Jean',
+    teacher3: 'Ms. Mutesi Claudine',
+    teacher4: 'Mr. Irakoze Olivier'
+  },
+  RULINDO: {
+    superadmin: 'Super Admin',
+    dos: 'Ms. Uwimana Claudine',
+    head: 'Mr. Habimana Jean',
+    teacher: 'Ms. Niyonsaba Diane',
+    teacher2: 'Mr. Ndayisaba Eric',
+    teacher3: 'Ms. Mukamana Esperance',
+    teacher4: 'Mr. Nkurunziza Samuel'
+  }
+};
+
+const TEACHER_ASSIGNMENTS = {
+  teacher: { classNames: ['P.1', 'P.4'], subjectCodes: ['ENG', 'MATH', 'KIN'] },
+  teacher2: { classNames: ['P.2', 'P.5'], subjectCodes: ['ENG', 'MATH', 'SCI'] },
+  teacher3: { classNames: ['Baby Class', 'Middle Class', 'Top Class'], subjectCodes: ['LANG', 'NUM', 'R&W'] },
+  teacher4: { classNames: ['P.3', 'P.7'], subjectCodes: ['SCI', 'SST', 'RE'] }
+};
+
+const CLASS_TEACHERS = {
+  'Baby Class': 'teacher3',
+  'Middle Class': 'teacher3',
+  'Top Class': 'teacher3',
+  'P.1': 'teacher',
+  'P.2': 'teacher2',
+  'P.3': 'teacher4',
+  'P.4': 'teacher',
+  'P.5': 'teacher2',
+  'P.6': 'teacher4',
+  'P.7': 'teacher4'
+};
+
+const BULK_COLLECTIONS = [
+  'setting',
+  'schoolClass',
+  'subject',
+  'user',
+  'student',
+  'teacherClass',
+  'teacherSubject',
+  'reportCard',
+  'mark',
+  'auditLog'
+];
+
+const hashPassword = (value) => bcrypt.hash(value, 10);
+
+function emailFor(localPart, campusId) {
+  return campusId === 'MAIN'
+    ? `${localPart}@lpareports.rw`
+    : `${localPart}.rulindo@lpareports.rw`;
 }
 
-async function main() {
-  console.log('Seeding LPACAMIS...');
+function slug(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
-  await prisma.setting.upsert({
-    where: { id: 1 },
-    update: {},
-    create: { id: 1, ...DEFAULT_SETTINGS }
-  });
+/** One idempotent bulk operation: a deterministic _id is the upsert key. */
+function upsertOperation(id, doc) {
+  return {
+    updateOne: {
+      filter: { _id: id },
+      update: { $set: doc },
+      upsert: true
+    }
+  };
+}
+
+/** Build every document for one campus in memory; no database reads/writes here. */
+function buildCampusDocs(campus, passwordHashes, bucket) {
+  const settings = defaultSettingsFor(campus.id);
+  const isMain = campus.id === 'MAIN';
+  const phoneBase = isMain ? 100 : 200;
+  const nameOffset = isMain ? 0 : 27;
+  const push = (collection, id, doc) => {
+    bucket[collection].push(upsertOperation(id, doc));
+  };
+  const userId = (local) => `user-${campus.id}-${local}`;
+
+  console.log(`Seeding ${campus.name} (${campus.id}) — ${campus.location}`);
+
+  // Setting is keyed by its _id (the campus id); the schema has no campusId.
+  push('setting', campus.id, { ...settings });
 
   const classes = {};
   for (const item of CLASSES) {
-    classes[item.name] = await prisma.schoolClass.upsert({
-      where: { name: item.name },
-      update: { level: item.level },
-      create: item
+    const classId = `class-${campus.id}-${slug(item.name)}`;
+    classes[item.name] = { id: classId, level: item.level };
+    push('schoolClass', classId, {
+      campusId: campus.id,
+      name: item.name,
+      level: item.level,
+      classTeacherId: userId(CLASS_TEACHERS[item.name])
     });
   }
 
   const subjects = {};
   for (const item of SUBJECTS) {
-    subjects[item.code] = await prisma.subject.upsert({
-      where: { code: item.code },
-      update: { name: item.name, levels: item.levels, position: item.position },
-      create: item
+    const subjectId = `subject-${campus.id}-${item.code}`;
+    subjects[item.code] = subjectId;
+    push('subject', subjectId, {
+      campusId: campus.id,
+      name: item.name,
+      code: item.code,
+      levels: item.levels,
+      position: item.position,
+      isActive: true
     });
   }
 
-  const password = async (value) => bcrypt.hash(value, 10);
-  const users = [
-    {
-      name: 'Super Admin',
-      email: 'superadmin@lpacamis.ac.ug',
-      phone: '+256 700 100 100',
-      role: 'SUPER_ADMIN',
-      password: 'Admin@1234',
-      canDelete: true
-    },
-    {
-      name: 'Ms. Sarah Namusoke',
-      email: 'dos@lpacamis.ac.ug',
-      phone: '+256 700 100 101',
-      role: 'DOS',
-      password: 'Dos@12345',
-      canDelete: false
-    },
-    {
-      name: 'Mr. Robert Ssekandi',
-      email: 'head@lpacamis.ac.ug',
-      phone: '+256 700 100 102',
-      role: 'HEAD_TEACHER',
-      password: 'Head@12345',
-      canDelete: false
-    },
-    {
-      name: 'Ms. Josephine Nakiwala',
-      email: 'teacher@lpacamis.ac.ug',
-      phone: '+256 700 100 103',
-      role: 'TEACHER',
-      password: 'Teacher@123',
-      classNames: ['P.1', 'P.4'],
-      subjectCodes: ['ENG', 'MATH', 'SWA']
-    },
-    {
-      name: 'Mr. Emmanuel Okiror',
-      email: 'teacher2@lpacamis.ac.ug',
-      phone: '+256 700 100 104',
-      role: 'TEACHER',
-      password: 'Teacher@123',
-      classNames: ['P.2', 'P.5'],
-      subjectCodes: ['ENG', 'MATH', 'SCI']
-    },
-    {
-      name: 'Ms. Daphne Nakato',
-      email: 'teacher3@lpacamis.ac.ug',
-      phone: '+256 700 100 105',
-      role: 'TEACHER',
-      password: 'Teacher@123',
-      classNames: ['Baby Class', 'Middle Class', 'Top Class'],
-      subjectCodes: ['LANG', 'NUM', 'R&W']
-    },
-    {
-      name: 'Mr. Isaac Mugerwa',
-      email: 'teacher4@lpacamis.ac.ug',
-      phone: '+256 700 100 106',
-      role: 'TEACHER',
-      password: 'Teacher@123',
-      classNames: ['P.3', 'P.7'],
-      subjectCodes: ['SCI', 'SST', 'RE']
-    }
-  ];
-
-  const userRecords = {};
-  for (const item of users) {
-    const existing = await prisma.user.findUnique({ where: { email: item.email } });
-    const record = existing
-      ? await prisma.user.update({
-          where: { email: item.email },
-          data: {
-            name: item.name,
-            phone: item.phone,
-            role: item.role,
-            isActive: true,
-            canDelete: item.canDelete ?? existing.canDelete
-          }
-        })
-      : await prisma.user.create({
-          data: {
-            name: item.name,
-            email: item.email,
-            phone: item.phone,
-            role: item.role,
-            canDelete: item.canDelete ?? false,
-            passwordHash: await password(item.password)
-          }
-        });
-
-    userRecords[item.email] = record;
-    await prisma.teacherClass.deleteMany({ where: { userId: record.id } });
-    await prisma.teacherSubject.deleteMany({ where: { userId: record.id } });
-    if (item.classNames?.length) {
-      await prisma.teacherClass.deleteMany({ where: { userId: record.id } });
-      await prisma.teacherClass.createMany({
-        data: item.classNames.map((name) => ({ userId: record.id, classId: classes[name].id }))
-      });
-    }
-    if (item.subjectCodes?.length) {
-      await prisma.teacherSubject.deleteMany({ where: { userId: record.id } });
-      await prisma.teacherSubject.createMany({
-        data: item.subjectCodes.map((code) => ({ userId: record.id, subjectId: subjects[code].id }))
-      });
-    }
-  }
-
-  const teacher1 = userRecords['teacher@lpacamis.ac.ug'];
-  const teacher2 = userRecords['teacher2@lpacamis.ac.ug'];
-  const teacher3 = userRecords['teacher3@lpacamis.ac.ug'];
-  const teacher4 = userRecords['teacher4@lpacamis.ac.ug'];
-  const dos = userRecords['dos@lpacamis.ac.ug'];
-  const head = userRecords['head@lpacamis.ac.ug'];
-
-  const classTeachers = {
-    'Baby Class': teacher3,
-    'Middle Class': teacher3,
-    'Top Class': teacher3,
-    'P.1': teacher1,
-    'P.2': teacher2,
-    'P.3': teacher4,
-    'P.4': teacher1,
-    'P.5': teacher2,
-    'P.6': teacher4,
-    'P.7': teacher4
-  };
-  for (const [name, teacher] of Object.entries(classTeachers)) {
-    await prisma.schoolClass.update({
-      where: { id: classes[name].id },
-      data: { classTeacherId: teacher.id }
+  for (const [index, local] of STAFF_LOCALS.entries()) {
+    const userIdValue = userId(local);
+    push('user', userIdValue, {
+      campusId: campus.id,
+      name: STAFF_NAMES[campus.id][local],
+      email: emailFor(local, campus.id),
+      phone: `+250 788 300 ${phoneBase + index}`,
+      passwordHash: passwordHashes[`${campus.id}:${local}`],
+      role: STAFF_ROLES[local],
+      isActive: true,
+      canDelete: local === 'superadmin'
     });
+
+    const assignment = TEACHER_ASSIGNMENTS[local];
+    for (const name of assignment?.classNames || []) {
+      const classId = classes[name].id;
+      push('teacherClass', `tc-${userIdValue}-${classId}`, {
+        campusId: campus.id,
+        userId: userIdValue,
+        classId
+      });
+    }
+    for (const code of assignment?.subjectCodes || []) {
+      const subjectId = subjects[code];
+      push('teacherSubject', `ts-${userIdValue}-${subjectId}`, {
+        campusId: campus.id,
+        userId: userIdValue,
+        subjectId
+      });
+    }
   }
 
   let studentSequence = 0;
   const studentsByClass = {};
-  for (const schoolClass of Object.values(classes)) {
-    studentsByClass[schoolClass.name] = [];
+  for (const item of CLASSES) {
+    const schoolClass = classes[item.name];
+    studentsByClass[item.name] = [];
+
     for (let index = 0; index < 5; index += 1) {
-      const [firstName, lastName] = STUDENT_NAMES[studentSequence % STUDENT_NAMES.length];
       studentSequence += 1;
-      const code = `LPAC-2026-${String(studentSequence).padStart(3, '0')}`;
-      const student = await prisma.student.upsert({
-        where: { code },
-        update: { classId: schoolClass.id },
-        create: {
-          code,
-          firstName,
-          lastName,
-          gender: studentSequence % 2 === 0 ? 'FEMALE' : 'MALE',
-          dateOfBirth: new Date(2012 + (studentSequence % 6), (studentSequence % 12), 12),
-          guardianName: `${lastName} Family`,
-          guardianPhone: `+256 77${String(2000000 + studentSequence).slice(-7)}`,
-          address: 'Kampala, Uganda',
-          classId: schoolClass.id,
-          createdById: userRecords['superadmin@lpacamis.ac.ug'].id
-        }
+      const [firstName, lastName] =
+        STUDENT_NAMES[(studentSequence - 1 + nameOffset) % STUDENT_NAMES.length];
+      const code = `LPA-${campus.short}-2026-${String(studentSequence).padStart(3, '0')}`;
+      const studentId = `student-${campus.id}-${code}`;
+
+      push('student', studentId, {
+        campusId: campus.id,
+        code,
+        firstName,
+        lastName,
+        gender: studentSequence % 2 === 0 ? 'FEMALE' : 'MALE',
+        dateOfBirth: new Date(2012 + (studentSequence % 6), (studentSequence % 12), 12),
+        guardianName: `${lastName} Family`,
+        guardianPhone: `+250 78${String(2000000 + studentSequence).slice(-7)}`,
+        address: campus.location,
+        classId: schoolClass.id,
+        createdById: userId('superadmin'),
+        isActive: true
       });
-      studentsByClass[schoolClass.name].push(student);
+
+      studentsByClass[item.name].push({ id: studentId, code });
     }
   }
 
-  const termStatus = {
-    TERM1: 'APPROVED',
-    TERM2: 'APPROVED'
-  };
+  const now = new Date();
+  const termStatus = { TERM1: 'APPROVED', TERM2: 'APPROVED' };
 
   for (const className of DEMO_CLASSES) {
     const schoolClass = classes[className];
-    const classSubjects = await prisma.subject.findMany({
-      where: { levels: { has: schoolClass.level }, isActive: true },
-      orderBy: { position: 'asc' }
-    });
+    const classSubjects = SUBJECTS.filter((item) => item.levels.includes(schoolClass.level))
+      .sort((a, b) => a.position - b.position);
     const students = studentsByClass[className];
-    const teacherId = classTeachers[className].id;
+    const teacherId = userId(CLASS_TEACHERS[className]);
 
     for (const [termIndex, term] of ['TERM1', 'TERM2', 'TERM3'].entries()) {
       for (const [studentIndex, student] of students.entries()) {
@@ -332,94 +302,115 @@ async function main() {
               : ['DRAFT', 'SUBMITTED', 'APPROVED'][studentIndex % 3]
             : termStatus[term];
 
-        const card = await prisma.reportCard.upsert({
-          where: { studentId_term_year: { studentId: student.id, term, year: 2026 } },
-          update: { status, classId: schoolClass.id },
-          create: {
-            studentId: student.id,
-            classId: schoolClass.id,
-            term,
-            year: 2026,
-            status,
-            attendancePresent: 56 + ((studentIndex + termIndex) % 6),
-            attendanceTotal: 64,
-            teacherComment:
-              status === 'APPROVED'
-                ? 'A steady term. Keep working on the weaker subjects during the holiday.'
-                : null,
-            dosComment:
-              status === 'APPROVED'
-                ? 'Report verified against the class assessment records.'
-                : null,
-            headComment:
-              status === 'APPROVED'
-                ? 'Approved for issue to the parent or guardian.'
-                : null,
-            createdById: teacherId,
-            submittedById: status === 'DRAFT' ? null : teacherId,
-            submittedAt: status === 'DRAFT' ? null : new Date(),
-            approvedById: status === 'APPROVED' ? dos.id : null,
-            approvedAt: status === 'APPROVED' ? new Date() : null
-          }
+        const cardId = `card-${campus.id}-${student.code}-${term}-2026`;
+        push('reportCard', cardId, {
+          campusId: campus.id,
+          studentId: student.id,
+          classId: schoolClass.id,
+          term,
+          year: 2026,
+          status,
+          teacherComment:
+            status === 'APPROVED'
+              ? 'A steady term. Keep working on the weaker subjects during the holiday.'
+              : null,
+          dosComment:
+            status === 'APPROVED'
+              ? 'Report verified against the class assessment records.'
+              : null,
+          headComment:
+            status === 'APPROVED'
+              ? 'Approved for issue to the parent or guardian.'
+              : null,
+          createdById: teacherId,
+          submittedById: status === 'DRAFT' ? null : teacherId,
+          submittedAt: status === 'DRAFT' ? null : now,
+          approvedById: status === 'APPROVED' ? userId('dos') : null,
+          approvedAt: status === 'APPROVED' ? now : null
         });
 
-        const baseAbility = 38 + ((studentIndex * 13 + className.length * 7) % 48);
+        const baseAbility = 38 + ((studentIndex * 13 + className.length * 7 + nameOffset) % 48);
 
         for (const [subjectIndex, subject] of classSubjects.entries()) {
           const variation = ((subjectIndex * 17 + termIndex * 11) % 21) - 10;
           const rawScore = Math.min(98, Math.max(16, baseAbility + variation + ((studentIndex * 3) % 7) - 3));
           const caScore = Math.min(100, Math.max(0, rawScore + ((subjectIndex + studentIndex) % 7) - 3));
           const examScore = Math.min(100, Math.max(0, rawScore + ((subjectIndex * 2 + studentIndex) % 9) - 4));
-          const total = computeTotal(caScore, examScore, DEFAULT_SETTINGS);
-          const gradeInfo = gradeFor(total, schoolClass.level, DEFAULT_SETTINGS);
+          const total = computeTotal(caScore, examScore, settings);
+          const gradeInfo = gradeFor(total, schoolClass.level, settings);
 
-          await prisma.mark.upsert({
-            where: {
-              reportCardId_subjectId: { reportCardId: card.id, subjectId: subject.id }
-            },
-            update: {
-              caScore,
-              examScore,
-              total,
-              grade: gradeInfo.grade,
-              remark: gradeInfo.remark,
-              competency: assessmentCompetency(schoolClass.level, total, null),
-              teacherId
-            },
-            create: {
-              reportCardId: card.id,
-              subjectId: subject.id,
-              caScore,
-              examScore,
-              total,
-              grade: gradeInfo.grade,
-              remark: gradeInfo.remark,
-              competency: assessmentCompetency(schoolClass.level, total, null),
-              teacherId
-            }
+          push('mark', `mark-${cardId}-${subject.code}`, {
+            campusId: campus.id,
+            reportCardId: cardId,
+            subjectId: subjects[subject.code],
+            caScore,
+            examScore,
+            total,
+            grade: gradeInfo.grade,
+            remark: gradeInfo.remark,
+            competency: assessmentCompetency(schoolClass.level, total, null),
+            teacherId
           });
         }
       }
     }
   }
 
-  await prisma.auditLog.create({
-    data: {
-      userId: userRecords['superadmin@lpacamis.ac.ug'].id,
-      userName: 'Super Admin',
-      userRole: 'SUPER_ADMIN',
-      action: 'SEED',
-      entity: 'System',
-      description: 'Seeded demonstration classes, subjects, staff, students and report cards.',
-      ip: '127.0.0.1'
-    }
+  push('auditLog', `audit-seed-${campus.id}`, {
+    campusId: campus.id,
+    userId: userId('superadmin'),
+    userName: 'Super Admin',
+    userRole: 'SUPER_ADMIN',
+    action: 'SEED',
+    entity: 'System',
+    description: `Seeded ${campus.name} classes, subjects, staff, students and report cards.`,
+    ip: '127.0.0.1'
   });
+}
 
-  console.log('Seed complete.');
-  console.log('Super Admin : superadmin@lpacamis.ac.ug / Admin@1234');
-  console.log('DOS         : dos@lpacamis.ac.ug / Dos@12345');
-  console.log('Head Teacher: head@lpacamis.ac.ug / Head@12345');
-  console.log('Teacher     : teacher@lpacamis.ac.ug / Teacher@123');
+async function main() {
+  console.log('Seeding LPAREPORTS...');
+
+  const campusList = Object.values(CAMPUSES);
+
+  // Hash all 14 staff passwords exactly once, before any documents are built.
+  const passwordHashes = {};
+  await Promise.all(
+    campusList.flatMap((campus) =>
+      STAFF_LOCALS.map(async (local) => {
+        passwordHashes[`${campus.id}:${local}`] = await hashPassword(STAFF_PASSWORDS[local]);
+      })
+    )
+  );
+
+  const bucket = Object.fromEntries(BULK_COLLECTIONS.map((key) => [key, []]));
+  for (const campus of campusList) {
+    buildCampusDocs(campus, passwordHashes, bucket);
+  }
+
+  for (const collection of BULK_COLLECTIONS) {
+    if (bucket[collection].length) {
+      await models[collection].bulkWrite(bucket[collection], { ordered: false });
+    }
+  }
+
+  console.log('\nSeed complete.');
+  for (const campus of campusList) {
+    const localSuffix = campus.id === 'MAIN' ? '' : '.rulindo';
+    console.log(`\n${campus.name} (${campus.id}) — ${campus.location}`);
+    for (const local of STAFF_LOCALS) {
+      const label = {
+        superadmin: 'Super Admin ',
+        dos: 'DOS         ',
+        head: 'Head Teacher',
+        teacher: 'Teacher     ',
+        teacher2: 'Teacher 2   ',
+        teacher3: 'Teacher 3   ',
+        teacher4: 'Teacher 4   '
+      }[local];
+      console.log(`  ${label}: ${emailFor(local, campus.id)} / ${STAFF_PASSWORDS[local]}`);
+    }
+  }
 }
 
 main()

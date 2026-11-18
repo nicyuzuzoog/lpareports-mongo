@@ -1,4 +1,4 @@
-import { STATUS_META, TERMS, LEVELS, ROLES } from './constants.js';
+import { STATUS_META, TERMS, LEVELS, ROLES, RWANDA_GRADING } from './constants.js';
 
 export const termLabel = (term) => TERMS.find((item) => item.value === term)?.label || term;
 
@@ -45,11 +45,30 @@ export function percent(value) {
   return value === null || value === undefined ? '—' : `${value}%`;
 }
 
+// Rwandan bands: A/B are strong, E/S are weak, F is the only failing grade.
 export function gradeClass(grade) {
   if (!grade || grade === '-') return 'text-muted-2';
-  if (['F9', 'U', 'E'].includes(grade)) return 'text-danger';
-  if (['D1', 'D2', 'A', 'B'].includes(grade)) return 'text-success';
+  if (grade === 'F') return 'text-danger';
+  if (grade === 'E' || grade === 'S') return 'text-warning';
+  if (grade === 'A' || grade === 'B') return 'text-success';
   return 'text-dark';
+}
+
+export function gradeBand(grade) {
+  return RWANDA_GRADING.find((band) => band.grade === grade) || null;
+}
+
+export function pointsForGrade(grade) {
+  return gradeBand(grade)?.points ?? null;
+}
+
+export function classPosition(position, outOf) {
+  if (position === null || position === undefined || position === '') return '—';
+  return outOf ? `${ordinal(position)} / ${outOf}` : ordinal(position);
+}
+
+export function pointsLabel(points) {
+  return points === null || points === undefined ? '—' : `${points} ${points === 1 ? 'pt' : 'pts'}`;
 }
 
 export function average(values) {

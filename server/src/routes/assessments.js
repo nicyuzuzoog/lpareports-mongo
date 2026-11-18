@@ -46,11 +46,17 @@ router.get(
 
     await assertClassAccess(req.user, String(classId));
 
-    const schoolClass = await prisma.schoolClass.findUnique({ where: { id: String(classId) } });
+    const schoolClass = await prisma.schoolClass.findFirst({
+      where: { id: String(classId), campusId: req.user.campusId }
+    });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
 
     let subjects = await prisma.subject.findMany({
-      where: { isActive: true, levels: { has: schoolClass.level } },
+      where: {
+        campusId: req.user.campusId,
+        isActive: true,
+        levels: { has: schoolClass.level }
+      },
       orderBy: [{ position: 'asc' }, { name: 'asc' }]
     });
 
@@ -65,13 +71,13 @@ router.get(
     }
 
     const students = await prisma.student.findMany({
-      where: { classId: String(classId), isActive: true },
+      where: { campusId: req.user.campusId, classId: String(classId), isActive: true },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }]
     });
 
     const cards = await prisma.reportCard.findMany({
-      where: { classId: String(classId), term, year },
-      include: { marks: true }
+      where: { campusId: req.user.campusId, classId: String(classId), term, year },
+      include: { marks: { where: { campusId: req.user.campusId } } }
     });
     const cardByStudent = new Map(cards.map((card) => [card.studentId, card]));
 
@@ -118,10 +124,14 @@ router.post(
     const data = bulkSchema.parse(req.body);
     await assertClassAccess(req.user, data.classId);
 
-    const schoolClass = await prisma.schoolClass.findUnique({ where: { id: data.classId } });
+    const schoolClass = await prisma.schoolClass.findFirst({
+      where: { id: data.classId, campusId: req.user.campusId }
+    });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
 
-    const subject = await prisma.subject.findUnique({ where: { id: data.subjectId } });
+    const subject = await prisma.subject.findFirst({
+      where: { id: data.subjectId, campusId: req.user.campusId }
+    });
     if (!subject) throw new HttpError(404, 'Subject not found.');
     if (!subject.levels.includes(schoolClass.level)) {
       throw new HttpError(400, `${subject.name} is not offered at ${schoolClass.name}.`);
@@ -133,16 +143,25 @@ router.post(
 
     const studentIds = data.records.map((record) => record.studentId);
     const validStudents = await prisma.student.findMany({
-      where: { id: { in: studentIds }, classId: data.classId },
+      where: {
+        id: { in: studentIds },
+        campusId: req.user.campusId,
+        classId: data.classId
+      },
       select: { id: true }
     });
     if (validStudents.length !== new Set(studentIds).size) {
       throw new HttpError(400, 'One or more students do not belong to the selected class.');
     }
 
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const existingCards = await prisma.reportCard.findMany({
-      where: { classId: data.classId, term: data.term, year: data.year },
+      where: {
+        campusId: req.user.campusId,
+        classId: data.classId,
+        term: data.term,
+        year: data.year
+      },
       select: { studentId: true, status: true }
     });
     const statusByStudent = new Map(existingCards.map((card) => [card.studentId, card.status]));
@@ -164,10 +183,12 @@ router.post(
               studentId: record.studentId,
               term: data.term,
               year: data.year
-            }
+            },
+            campusId: req.user.campusId
           },
-          update: {},
+          update: { campusId: req.user.campusId },
           create: {
+            campusId: req.user.campusId,
             studentId: record.studentId,
             classId: data.classId,
             term: data.term,
@@ -197,10 +218,16 @@ router.post(
             reportCardId_subjectId: {
               reportCardId: card.id,
               subjectId: data.subjectId
-            }
+            },
+            campusId: req.user.campusId
           },
-          update: payload,
-          create: { ...payload, reportCardId: card.id, subjectId: data.subjectId }
+          update: { ...payload, campusId: req.user.campusId },
+          create: {
+            ...payload,
+            campusId: req.user.campusId,
+            reportCardId: card.id,
+            subjectId: data.subjectId
+          }
         });
         saved += 1;
       }
@@ -211,7 +238,14 @@ router.post(
       entity: 'Assessment',
       entityId: `${data.classId}:${data.subjectId}:${data.term}:${data.year}`,
       description: `Saved ${saved} ${subject.name} assessment(s) for ${schoolClass.name}, ${data.term} ${data.year}.`,
-      after: { classId: data.classId, subjectId: data.subjectId, term: data.term, year: data.year, records: saved }
+      after: {
+        campusId: req.user.campusId,
+        classId: data.classId,
+        subjectId: data.subjectId,
+        term: data.term,
+        year: data.year,
+        records: saved
+      }
     });
 
     res.json({ message: `${saved} assessment record(s) saved.`, saved });

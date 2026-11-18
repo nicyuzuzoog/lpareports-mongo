@@ -25,10 +25,22 @@ const loginLimiter = rateLimit({
   message: { message: 'Too many sign-in attempts. Please wait 10 minutes and try again.' }
 });
 
-const loginSchema = z.object({
-  email: emailSchema,
-  password: z.string().min(1, 'Password is required.')
-});
+const campusSchema = z.enum(['MAIN', 'RULINDO']);
+
+// Campuses have separate logins: the same email may exist on both, so a
+// campus is required. `campus` is accepted as an alias for `campusId`.
+const loginSchema = z
+  .object({
+    email: emailSchema,
+    password: z.string().min(1, 'Password is required.'),
+    campusId: campusSchema.optional(),
+    campus: campusSchema.optional()
+  })
+  .transform(({ campus, ...data }) => ({ ...data, campusId: data.campusId ?? campus }))
+  .refine((data) => campusSchema.safeParse(data.campusId).success, {
+    message: 'Select a campus.',
+    path: ['campusId']
+  });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -39,10 +51,10 @@ router.post(
   '/login',
   loginLimiter,
   asyncHandler(async (req, res) => {
-    const { email, password } = loginSchema.parse(req.body);
+    const { email, password, campusId } = loginSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { campusId, email },
       include: {
         classes: { include: { class: true } },
         subjects: { include: { subject: true } }
@@ -83,8 +95,11 @@ router.post(
     if (!valid) throw new HttpError(400, 'Current password is incorrect.');
 
     await prisma.user.update({
-      where: { id: req.user.id },
-      data: { passwordHash: await bcrypt.hash(newPassword, 10) }
+      where: { id: req.user.id, campusId: req.user.campusId },
+      data: {
+        campusId: req.user.campusId,
+        passwordHash: await bcrypt.hash(newPassword, 10)
+      }
     });
 
     await writeAudit(req, {

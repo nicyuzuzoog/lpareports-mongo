@@ -24,7 +24,7 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { level, active } = req.query;
-    const where = {};
+    const where = { campusId: req.user.campusId };
     if (level) where.levels = { has: level };
     if (active === 'true') where.isActive = true;
 
@@ -42,13 +42,15 @@ router.post(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
+    const campusId = req.user.campusId;
     const duplicate = await prisma.subject.findFirst({
-      where: { OR: [{ name: data.name }, { code: data.code.toUpperCase() }] }
+      where: { campusId, OR: [{ name: data.name }, { code: data.code.toUpperCase() }] }
     });
     if (duplicate) throw new HttpError(409, 'A subject with this name or code already exists.');
 
     const created = await prisma.subject.create({
       data: {
+        campusId,
         name: data.name,
         code: data.code.toUpperCase(),
         levels: data.levels,
@@ -74,12 +76,14 @@ router.patch(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
-    const existing = await prisma.subject.findUnique({ where: { id: req.params.id } });
+    const campusId = req.user.campusId;
+    const existing = await prisma.subject.findUnique({ where: { id: req.params.id, campusId } });
     if (!existing) throw notFound('Subject not found.');
 
     if (data.name || data.code) {
       const duplicate = await prisma.subject.findFirst({
         where: {
+          campusId,
           id: { not: existing.id },
           OR: [
             ...(data.name ? [{ name: data.name }] : []),
@@ -91,8 +95,9 @@ router.patch(
     }
 
     const updated = await prisma.subject.update({
-      where: { id: existing.id },
+      where: { id: existing.id, campusId },
       data: {
+        campusId,
         name: data.name ?? existing.name,
         code: data.code ? data.code.toUpperCase() : existing.code,
         levels: data.levels ?? existing.levels,
@@ -119,7 +124,7 @@ router.delete(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.subject.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id, campusId: req.user.campusId },
       include: { _count: { select: { marks: true } } }
     });
     if (!existing) throw notFound('Subject not found.');
@@ -127,7 +132,7 @@ router.delete(
       throw new HttpError(409, 'This subject already has assessment records. Deactivate it instead.');
     }
 
-    await prisma.subject.delete({ where: { id: existing.id } });
+    await prisma.subject.delete({ where: { id: existing.id, campusId: req.user.campusId } });
 
     await writeAudit(req, {
       action: 'DELETE',

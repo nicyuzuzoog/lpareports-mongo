@@ -6,7 +6,7 @@ import PageHeader from '../components/PageHeader.jsx';
 import StatCard from '../components/StatCard.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { ErrorAlert, Loading, EmptyState } from '../components/Feedback.jsx';
-import { formatDateTime, levelLabel, percent, roleLabel, termLabel } from '../utils/format.js';
+import { classPosition, formatDateTime, levelLabel, percent, roleLabel, termLabel } from '../utils/format.js';
 
 function greeting() {
   const hour = new Date().getHours();
@@ -208,6 +208,7 @@ export default function Dashboard() {
                       <th>Class</th>
                       <th>Term</th>
                       <th>Average</th>
+                      <th>Position</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -223,6 +224,7 @@ export default function Dashboard() {
                         <td>{report.className}</td>
                         <td>{termLabel(report.term)}</td>
                         <td className="fw-650">{percent(report.average)}</td>
+                        <td className="fw-650">{classPosition(report.position, report.outOf)}</td>
                         <td><StatusBadge status={report.status} /></td>
                       </tr>
                     ))}

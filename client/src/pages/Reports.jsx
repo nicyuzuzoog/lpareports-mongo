@@ -8,7 +8,7 @@ import Modal from '../components/Modal.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { EmptyState, ErrorAlert, Loading, Pagination } from '../components/Feedback.jsx';
 import { TERMS, YEAR_OPTIONS, currentYear } from '../utils/constants.js';
-import { percent, termLabel } from '../utils/format.js';
+import { classPosition, percent, termLabel } from '../utils/format.js';
 
 const MANAGERS = ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'];
 
@@ -225,6 +225,7 @@ export default function Reports() {
                   <th>Term</th>
                   <th>Average</th>
                   <th>Grade</th>
+                  <th>Position</th>
                   <th>Status</th>
                   <th className="text-end">Actions</th>
                 </tr>
@@ -243,6 +244,7 @@ export default function Reports() {
                     </td>
                     <td className="fw-650">{percent(report.average)}</td>
                     <td className="fw-650">{report.grade || '—'}</td>
+                    <td className="fw-650">{classPosition(report.position, report.outOf)}</td>
                     <td>
                       <StatusBadge status={report.status} />
                       {report.approvedBy ? (

@@ -337,10 +337,18 @@ async function create(modelKey, args = {}) {
 
   const doc = plain(await models[modelKey].create(data));
   for (const row of nested.classes || []) {
-    await models.teacherClass.create({ userId: doc.id, classId: row.classId });
+    await models.teacherClass.create({
+      campusId: row.campusId ?? doc.campusId,
+      userId: doc.id,
+      classId: row.classId
+    });
   }
   for (const row of nested.subjects || []) {
-    await models.teacherSubject.create({ userId: doc.id, subjectId: row.subjectId });
+    await models.teacherSubject.create({
+      campusId: row.campusId ?? doc.campusId,
+      userId: doc.id,
+      subjectId: row.subjectId
+    });
   }
   await attachIncludes(modelMeta[modelKey], [doc], args.include);
   return doc;
@@ -356,7 +364,11 @@ async function updateById(modelKey, id, data = {}) {
       const field = key === 'classes' ? 'classId' : 'subjectId';
       await models[model].deleteMany({ userId: id });
       for (const row of value.create || []) {
-        await models[model].create({ userId: id, [field]: row[field] });
+        await models[model].create({
+          campusId: row.campusId ?? record.campusId,
+          userId: id,
+          [field]: row[field]
+        });
       }
       continue;
     }
@@ -385,25 +397,26 @@ async function remove(modelKey, args = {}) {
   const doc = plain(await models[modelKey].findOne(filter));
   if (!doc) return null;
 
+  const scope = doc.campusId ? { campusId: doc.campusId } : {};
   if (modelKey === 'reportCard') {
-    await models.mark.deleteMany({ reportCardId: doc.id });
+    await models.mark.deleteMany({ ...scope, reportCardId: doc.id });
   }
   if (modelKey === 'student') {
-    const cards = await findDocs('reportCard', { studentId: doc.id });
+    const cards = await findDocs('reportCard', { ...scope, studentId: doc.id });
     const cardIds = cards.map((card) => card.id);
-    await models.mark.deleteMany({ reportCardId: { $in: cardIds } });
-    await models.reportCard.deleteMany({ studentId: doc.id });
+    await models.mark.deleteMany({ ...scope, reportCardId: { $in: cardIds } });
+    await models.reportCard.deleteMany({ ...scope, studentId: doc.id });
   }
   if (modelKey === 'user') {
-    await models.teacherClass.deleteMany({ userId: doc.id });
-    await models.teacherSubject.deleteMany({ userId: doc.id });
-    await models.schoolClass.updateMany({ classTeacherId: doc.id }, { $set: { classTeacherId: null } });
-    await models.reportCard.updateMany({ submittedById: doc.id }, { $set: { submittedById: null } });
-    await models.reportCard.updateMany({ approvedById: doc.id }, { $set: { approvedById: null } });
-    await models.mark.updateMany({ teacherId: doc.id }, { $set: { teacherId: null } });
+    await models.teacherClass.deleteMany({ ...scope, userId: doc.id });
+    await models.teacherSubject.deleteMany({ ...scope, userId: doc.id });
+    await models.schoolClass.updateMany({ ...scope, classTeacherId: doc.id }, { $set: { classTeacherId: null } });
+    await models.reportCard.updateMany({ ...scope, submittedById: doc.id }, { $set: { submittedById: null } });
+    await models.reportCard.updateMany({ ...scope, approvedById: doc.id }, { $set: { approvedById: null } });
+    await models.mark.updateMany({ ...scope, teacherId: doc.id }, { $set: { teacherId: null } });
   }
   if (modelKey === 'schoolClass') {
-    await models.teacherClass.deleteMany({ classId: doc.id });
+    await models.teacherClass.deleteMany({ ...scope, classId: doc.id });
   }
 
   await models[modelKey].deleteOne({ _id: doc.id });

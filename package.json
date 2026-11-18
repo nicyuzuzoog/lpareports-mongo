@@ -1,8 +1,8 @@
 {
-  "name": "lpacamis",
+  "name": "lpareports",
   "version": "1.0.0",
   "private": true,
-  "description": "LPACAMIS school management information system - report cards, assessments, approvals and analytics.",
+  "description": "LPAREPORTS school management information system - report cards, assessments, approvals and analytics.",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix client install",
     "dev": "concurrently -n api,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",

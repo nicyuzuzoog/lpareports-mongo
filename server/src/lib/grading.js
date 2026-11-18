@@ -17,51 +17,69 @@ export const ROLE_LABELS = {
   TEACHER: 'Teacher'
 };
 
+// Rwanda Ministry of Education / NESA primary grading bands (effective 2022).
+// Higher grade values are better: maximum aggregate is 6 x number of subjects.
+const RWANDA_PRIMARY_SCALE = [
+  { min: 70, max: 100, grade: 'A', remark: 'Excellent', points: 6 },
+  { min: 65, max: 69, grade: 'B', remark: 'Very Good', points: 5 },
+  { min: 60, max: 64, grade: 'C', remark: 'Good', points: 4 },
+  { min: 50, max: 59, grade: 'D', remark: 'Satisfactory', points: 3 },
+  { min: 40, max: 49, grade: 'E', remark: 'Adequate', points: 2 },
+  { min: 20, max: 39, grade: 'S', remark: 'Fair', points: 1 },
+  { min: 0, max: 19, grade: 'F', remark: 'Fail', points: 0 }
+];
+
 export const DEFAULT_GRADING_SCALES = {
-  NURSERY: [
-    { min: 80, max: 100, grade: 'A', remark: 'Excellent', points: 5 },
-    { min: 70, max: 79, grade: 'B', remark: 'Very good', points: 4 },
-    { min: 60, max: 69, grade: 'C', remark: 'Good', points: 3 },
-    { min: 50, max: 59, grade: 'D', remark: 'Fair', points: 2 },
-    { min: 40, max: 49, grade: 'E', remark: 'Needs support', points: 1 },
-    { min: 0, max: 39, grade: 'U', remark: 'Below expectation', points: 0 }
-  ],
-  LOWER_PRIMARY: [
-    { min: 80, max: 100, grade: 'A', remark: 'Excellent', points: 5 },
-    { min: 70, max: 79, grade: 'B', remark: 'Very good', points: 4 },
-    { min: 60, max: 69, grade: 'C', remark: 'Good', points: 3 },
-    { min: 50, max: 59, grade: 'D', remark: 'Fair', points: 2 },
-    { min: 40, max: 49, grade: 'E', remark: 'Needs support', points: 1 },
-    { min: 0, max: 39, grade: 'U', remark: 'Below expectation', points: 0 }
-  ],
-  UPPER_PRIMARY: [
-    { min: 90, max: 100, grade: 'D1', remark: 'Distinction', points: 1 },
-    { min: 80, max: 89, grade: 'D2', remark: 'Distinction', points: 2 },
-    { min: 70, max: 79, grade: 'C3', remark: 'Credit', points: 3 },
-    { min: 60, max: 69, grade: 'C4', remark: 'Credit', points: 4 },
-    { min: 55, max: 59, grade: 'C5', remark: 'Credit', points: 5 },
-    { min: 50, max: 54, grade: 'C6', remark: 'Pass', points: 6 },
-    { min: 45, max: 49, grade: 'P7', remark: 'Pass', points: 7 },
-    { min: 40, max: 44, grade: 'P8', remark: 'Pass', points: 8 },
-    { min: 0, max: 39, grade: 'F9', remark: 'Fail', points: 9 }
-  ]
+  NURSERY: RWANDA_PRIMARY_SCALE,
+  LOWER_PRIMARY: RWANDA_PRIMARY_SCALE,
+  UPPER_PRIMARY: RWANDA_PRIMARY_SCALE
 };
 
-export const DEFAULT_SETTINGS = {
-  schoolName: 'LPACAMIS',
-  schoolMotto: 'Knowledge, Character, Service',
-  schoolAddress: 'P.O. Box 100, Kampala, Uganda',
-  schoolPhone: '+256 700 000 000',
-  schoolEmail: 'info@lpacamis.ac.ug',
-  headTeacherName: 'Head Teacher',
-  dosName: 'Director of Studies',
-  passMark: 50,
-  lowPerformanceThreshold: 40,
-  lowPerformanceMinSubjects: 2,
-  courseworkWeight: 40,
-  examWeight: 60,
-  gradingScales: DEFAULT_GRADING_SCALES
+export const CAMPUSES = {
+  MAIN: { id: 'MAIN', name: 'LIGHT PEACE ACADEMY', short: 'M', location: 'Kigali, Rwanda' },
+  RULINDO: { id: 'RULINDO', name: 'LIGHT PEACE ACADEMY RULINDO', short: 'R', location: 'Rulindo, Rwanda' }
 };
+
+const CAMPUS_CONTACT = {
+  MAIN: {
+    schoolMotto: 'Knowledge, Character, Service',
+    schoolPhone: '+250 788 300 100',
+    schoolEmail: 'info@lpareports.rw',
+    headTeacherName: 'Mr. Nkurunziza Emmanuel',
+    dosName: 'Ms. Mukamana Grace'
+  },
+  RULINDO: {
+    schoolMotto: 'Knowledge, Character, Service',
+    schoolPhone: '+250 788 300 200',
+    schoolEmail: 'rulindo@lpareports.rw',
+    headTeacherName: 'Mr. Habimana Jean',
+    dosName: 'Ms. Uwimana Claudine'
+  }
+};
+
+export function defaultSettingsFor(campusId = 'MAIN') {
+  const campus = CAMPUSES[campusId] || CAMPUSES.MAIN;
+  const contact = CAMPUS_CONTACT[campus.id] || CAMPUS_CONTACT.MAIN;
+
+  return {
+    schoolName: campus.name,
+    schoolMotto: contact.schoolMotto,
+    schoolAddress: campus.location,
+    schoolPhone: contact.schoolPhone,
+    schoolEmail: contact.schoolEmail,
+    headTeacherName: contact.headTeacherName,
+    dosName: contact.dosName,
+    passMark: 50,
+    lowPerformanceThreshold: 40,
+    lowPerformanceMinSubjects: 2,
+    courseworkWeight: 40,
+    examWeight: 60,
+    gradingScales: DEFAULT_GRADING_SCALES
+  };
+}
+
+// Backwards-compatible alias for callers that still expect a single default object.
+export const DEFAULT_SETTINGS = defaultSettingsFor('MAIN');
 
 export function clampScore(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -101,8 +119,8 @@ export function computeTotal(caScore, examScore, settings) {
 
 export function competencyFor(score) {
   if (score === null || score === undefined) return null;
-  if (score >= 80) return 'Exceeds expectations';
-  if (score >= 65) return 'Meets expectations';
+  if (score >= 70) return 'Exceeds expectations';
+  if (score >= 60) return 'Meets expectations';
   if (score >= 50) return 'Approaching expectations';
   return 'Needs support';
 }

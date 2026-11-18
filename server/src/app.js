@@ -66,7 +66,7 @@ app.locals.verifyToken = verifyToken;
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'lpacamis-api',
+    service: 'lpareports-api',
     environment: config.env,
     time: new Date().toISOString()
   });

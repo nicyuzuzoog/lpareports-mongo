@@ -23,7 +23,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const accessible = await allowedClassIds(req.user);
     const classes = await prisma.schoolClass.findMany({
-      where: { id: { in: accessible } },
+      where: { campusId: req.user.campusId, id: { in: accessible } },
       include: {
         classTeacher: { select: { id: true, name: true } },
         _count: { select: { students: true, reportCards: true } }
@@ -50,11 +50,13 @@ router.post(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
-    const duplicate = await prisma.schoolClass.findUnique({ where: { name: data.name } });
+    const campusId = req.user.campusId;
+    const duplicate = await prisma.schoolClass.findUnique({ where: { campusId, name: data.name } });
     if (duplicate) throw new HttpError(409, 'A class with this name already exists.');
 
     const created = await prisma.schoolClass.create({
       data: {
+        campusId,
         name: data.name,
         level: data.level,
         classTeacherId: data.classTeacherId || null
@@ -79,17 +81,19 @@ router.patch(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
-    const existing = await prisma.schoolClass.findUnique({ where: { id: req.params.id } });
+    const campusId = req.user.campusId;
+    const existing = await prisma.schoolClass.findUnique({ where: { id: req.params.id, campusId } });
     if (!existing) throw notFound('Class not found.');
 
     if (data.name && data.name !== existing.name) {
-      const duplicate = await prisma.schoolClass.findUnique({ where: { name: data.name } });
+      const duplicate = await prisma.schoolClass.findUnique({ where: { campusId, name: data.name } });
       if (duplicate) throw new HttpError(409, 'A class with this name already exists.');
     }
 
     const updated = await prisma.schoolClass.update({
-      where: { id: existing.id },
+      where: { id: existing.id, campusId },
       data: {
+        campusId,
         name: data.name ?? existing.name,
         level: data.level ?? existing.level,
         classTeacherId:
@@ -116,7 +120,7 @@ router.delete(
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.schoolClass.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id, campusId: req.user.campusId },
       include: { _count: { select: { students: true, reportCards: true } } }
     });
     if (!existing) throw notFound('Class not found.');
@@ -124,7 +128,7 @@ router.delete(
       throw new HttpError(409, 'This class has students or report cards. Move or archive them first.');
     }
 
-    await prisma.schoolClass.delete({ where: { id: existing.id } });
+    await prisma.schoolClass.delete({ where: { id: existing.id, campusId: req.user.campusId } });
 
     await writeAudit(req, {
       action: 'DELETE',

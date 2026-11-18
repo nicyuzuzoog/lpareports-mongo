@@ -1,21 +1,27 @@
 import { prisma } from '../lib/prisma.js';
-import { DEFAULT_SETTINGS } from '../lib/grading.js';
+import { defaultSettingsFor } from '../lib/grading.js';
 
-let cached = null;
+// One settings document (and one cache entry) per campus.
+const cache = new Map();
 
-export async function getSettings(force = false) {
-  if (cached && !force) return cached;
+export async function getSettings(campusId = 'MAIN', force = false) {
+  if (cache.has(campusId) && !force) return cache.get(campusId);
 
-  let settings = await prisma.setting.findUnique({ where: { id: 1 } });
+  let settings = await prisma.setting.findUnique({ where: { id: campusId } });
   if (!settings) {
     settings = await prisma.setting.create({
-      data: { id: 1, ...DEFAULT_SETTINGS }
+      data: { _id: campusId, ...defaultSettingsFor(campusId) }
     });
   }
-  cached = settings;
+  cache.set(campusId, settings);
   return settings;
 }
 
-export function clearSettingsCache() {
-  cached = null;
+/** Without an argument (or with 'ALL') every campus cache entry is cleared. */
+export function clearSettingsCache(campusId) {
+  if (!campusId || campusId === 'ALL') {
+    cache.clear();
+    return;
+  }
+  cache.delete(campusId);
 }

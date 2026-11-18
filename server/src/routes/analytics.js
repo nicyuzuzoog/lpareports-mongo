@@ -28,24 +28,32 @@ async function scopedClasses(user, { level, classId } = {}) {
   return prisma.schoolClass.findMany({
     where: {
       id: classId ? classId : { in: accessible },
+      campusId: user.campusId,
       ...(level ? { level } : {})
     },
     include: {
-      students: { where: { isActive: true }, select: { id: true } }
+      students: {
+        where: { isActive: true, campusId: user.campusId },
+        select: { id: true }
+      }
     },
     orderBy: [{ level: 'asc' }, { name: 'asc' }]
   });
 }
 
-async function cardsFor(classIds, year, term) {
+async function cardsFor(classIds, year, term, campusId) {
   return prisma.reportCard.findMany({
     where: {
       classId: { in: classIds },
+      campusId,
       year,
       ...(term ? { term } : {})
     },
     include: {
-      marks: { include: { subject: true } },
+      marks: {
+        where: { campusId },
+        include: { subject: true }
+      },
       student: {
         select: { id: true, code: true, firstName: true, lastName: true, otherNames: true }
       },
@@ -57,23 +65,44 @@ async function cardsFor(classIds, year, term) {
 router.get(
   '/overview',
   asyncHandler(async (req, res) => {
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const year = Number(req.query.year || new Date().getFullYear());
     const accessible = await allowedClassIds(req.user);
     const classes = await prisma.schoolClass.findMany({
-      where: { id: { in: accessible } },
-      include: { students: { where: { isActive: true }, select: { id: true } } }
+      where: { id: { in: accessible }, campusId: req.user.campusId },
+      include: {
+        students: {
+          where: { isActive: true, campusId: req.user.campusId },
+          select: { id: true }
+        }
+      }
     });
     const classIds = classes.map((item) => item.id);
 
     const [cards, pending, approved, teachers] = await Promise.all([
       prisma.reportCard.findMany({
-        where: { classId: { in: classIds }, year },
-        include: { marks: true, class: true }
+        where: { classId: { in: classIds }, campusId: req.user.campusId, year },
+        include: { marks: { where: { campusId: req.user.campusId } }, class: true }
       }),
-      prisma.reportCard.count({ where: { classId: { in: classIds }, year, status: 'SUBMITTED' } }),
-      prisma.reportCard.count({ where: { classId: { in: classIds }, year, status: 'APPROVED' } }),
-      prisma.user.count({ where: { role: 'TEACHER', isActive: true } })
+      prisma.reportCard.count({
+        where: {
+          classId: { in: classIds },
+          campusId: req.user.campusId,
+          year,
+          status: 'SUBMITTED'
+        }
+      }),
+      prisma.reportCard.count({
+        where: {
+          classId: { in: classIds },
+          campusId: req.user.campusId,
+          year,
+          status: 'APPROVED'
+        }
+      }),
+      prisma.user.count({
+        where: { role: 'TEACHER', isActive: true, campusId: req.user.campusId }
+      })
     ]);
 
     const byLevel = {};
@@ -129,12 +158,12 @@ router.get(
 router.get(
   '/progression',
   asyncHandler(async (req, res) => {
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const year = Number(req.query.year || new Date().getFullYear());
     const level = req.query.level ? String(req.query.level) : undefined;
     const classes = await scopedClasses(req.user, { level });
 
-    const cards = await cardsFor(classes.map((item) => item.id), year);
+    const cards = await cardsFor(classes.map((item) => item.id), year, undefined, req.user.campusId);
     const settingsPass = settings.passMark;
 
     const progression = classes.map((schoolClass) => {
@@ -174,7 +203,7 @@ router.get(
 router.get(
   '/low-performers',
   asyncHandler(async (req, res) => {
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const year = Number(req.query.year || new Date().getFullYear());
     const term = req.query.term ? String(req.query.term) : 'TERM3';
     const level = req.query.level ? String(req.query.level) : undefined;
@@ -188,7 +217,7 @@ router.get(
     }
 
     const classes = await scopedClasses(req.user, { level, classId: req.query.classId ? String(req.query.classId) : undefined });
-    const cards = await cardsFor(classes.map((item) => item.id), year, term);
+    const cards = await cardsFor(classes.map((item) => item.id), year, term, req.user.campusId);
 
     const students = cards.map((card) => {
       const summary = summariseMarks(card.marks, card.class.level, settings);
@@ -241,24 +270,31 @@ router.get(
 router.get(
   '/class/:classId',
   asyncHandler(async (req, res) => {
-    const settings = await getSettings();
+    const settings = await getSettings(req.user.campusId);
     const year = Number(req.query.year || new Date().getFullYear());
     const accessible = await allowedClassIds(req.user);
     if (!accessible.includes(req.params.classId)) {
       throw new HttpError(403, 'You do not have access to this class.');
     }
 
-    const schoolClass = await prisma.schoolClass.findUnique({
-      where: { id: req.params.classId },
-      include: { students: { where: { isActive: true } } }
+    const schoolClass = await prisma.schoolClass.findFirst({
+      where: { id: req.params.classId, campusId: req.user.campusId },
+      include: {
+        students: {
+          where: { isActive: true, campusId: req.user.campusId }
+        }
+      }
     });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
     ensurePrimaryForDos(req.user, schoolClass.level);
 
     const cards = await prisma.reportCard.findMany({
-      where: { classId: schoolClass.id, year },
+      where: { classId: schoolClass.id, campusId: req.user.campusId, year },
       include: {
-        marks: { include: { subject: true } },
+        marks: {
+          where: { campusId: req.user.campusId },
+          include: { subject: true }
+        },
         class: true
       }
     });

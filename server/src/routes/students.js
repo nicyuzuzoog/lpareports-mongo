@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { publicStudent } from '../lib/serialize.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
+import { getSettings } from '../lib/settings.js';
+import { positionsFor } from '../services/reportService.js';
 import {
   authenticate,
   allowedClassIds,
@@ -32,14 +34,21 @@ const createSchema = z.object({
 
 const updateSchema = createSchema.partial();
 
-async function generateStudentCode() {
+function campusShort(campusId) {
+  return campusId === 'RULINDO' ? 'R' : 'M';
+}
+
+async function generateStudentCode(campusId) {
   const year = new Date().getFullYear();
-  const prefix = `LPAC-${year}-`;
-  let sequence = (await prisma.student.count({ where: { code: { startsWith: prefix } } })) + 1;
+  const prefix = `LPA-${campusShort(campusId)}-${year}-`;
+  let sequence =
+    (await prisma.student.count({
+      where: { campusId, code: { startsWith: prefix } }
+    })) + 1;
 
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const candidate = `${prefix}${String(sequence).padStart(3, '0')}`;
-    const exists = await prisma.student.findUnique({ where: { code: candidate } });
+    const exists = await prisma.student.findFirst({ where: { campusId, code: candidate } });
     if (!exists) return candidate;
     sequence += 1;
   }
@@ -59,8 +68,9 @@ router.get(
     }
 
     const where = {
+      campusId: req.user.campusId,
       ...(classId ? { classId: String(classId) } : { classId: { in: accessible } }),
-      ...(level ? { class: { level } } : {}),
+      ...(level ? { class: { level, campusId: req.user.campusId } } : {}),
       ...(status === 'inactive' ? { isActive: false } : status === 'all' ? {} : { isActive: true })
     };
 
@@ -95,12 +105,16 @@ router.get(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    const student = await prisma.student.findUnique({
-      where: { id: req.params.id },
+    const student = await prisma.student.findFirst({
+      where: { id: req.params.id, campusId: req.user.campusId },
       include: {
         class: true,
         reportCards: {
-          include: { class: true, marks: true },
+          where: { campusId: req.user.campusId },
+          include: {
+            class: true,
+            marks: { where: { campusId: req.user.campusId } }
+          },
           orderBy: [{ year: 'desc' }, { term: 'desc' }]
         }
       }
@@ -112,27 +126,48 @@ router.get(
       throw new HttpError(403, 'You do not have access to this student.');
     }
 
-    res.json({
-      student: {
-        ...publicStudent(student),
-        reportCards: student.reportCards.map((card) => ({
+    const settings = await getSettings(req.user.campusId);
+    const positionsCache = new Map();
+    const getPositions = async (card) => {
+      const key = `${card.classId}|${card.term}|${card.year}`;
+      if (!positionsCache.has(key)) {
+        positionsCache.set(
+          key,
+          positionsFor(req.user.campusId, card.classId, card.term, card.year, settings)
+        );
+      }
+      return positionsCache.get(key);
+    };
+
+    const reportCards = await Promise.all(
+      student.reportCards.map(async (card) => {
+        const assessed = card.marks.filter((mark) => mark.total !== null);
+        const average =
+          assessed.length > 0
+            ? Math.round(
+                (assessed.reduce((sum, mark) => sum + Number(mark.total || 0), 0) / assessed.length) *
+                  10
+              ) / 10
+            : null;
+        const { positions, outOf } = await getPositions(card);
+        return {
           id: card.id,
           term: card.term,
           year: card.year,
           className: card.class.name,
           status: card.status,
           subjects: card.marks.length,
-          average:
-            card.marks.filter((mark) => mark.total !== null).length > 0
-              ? Math.round(
-                  (card.marks
-                    .filter((mark) => mark.total !== null)
-                    .reduce((sum, mark) => sum + Number(mark.total || 0), 0) /
-                    card.marks.filter((mark) => mark.total !== null).length) *
-                    10
-                ) / 10
-              : null
-        }))
+          average,
+          position: positions.get(card.id) || null,
+          outOf
+        };
+      })
+    );
+
+    res.json({
+      student: {
+        ...publicStudent(student),
+        reportCards
       }
     });
   })
@@ -144,12 +179,17 @@ router.post(
     const data = createSchema.parse(req.body);
     await assertClassAccess(req.user, data.classId);
 
-    let code = data.code ? data.code.trim().toUpperCase() : await generateStudentCode();
-    const duplicate = await prisma.student.findUnique({ where: { code } });
+    let code = data.code
+      ? data.code.trim().toUpperCase()
+      : await generateStudentCode(req.user.campusId);
+    const duplicate = await prisma.student.findFirst({
+      where: { campusId: req.user.campusId, code }
+    });
     if (duplicate) throw new HttpError(409, 'This student code is already in use. Choose another.');
 
     const student = await prisma.student.create({
       data: {
+        campusId: req.user.campusId,
         code,
         firstName: data.firstName,
         lastName: data.lastName,
@@ -182,8 +222,8 @@ router.patch(
   '/:id',
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
-    const existing = await prisma.student.findUnique({
-      where: { id: req.params.id },
+    const existing = await prisma.student.findFirst({
+      where: { id: req.params.id, campusId: req.user.campusId },
       include: { class: true }
     });
     if (!existing) throw notFound('Student not found.');
@@ -191,13 +231,16 @@ router.patch(
     if (data.classId) await assertClassAccess(req.user, data.classId);
 
     if (data.code && data.code.toUpperCase() !== existing.code) {
-      const duplicate = await prisma.student.findUnique({ where: { code: data.code.toUpperCase() } });
+      const duplicate = await prisma.student.findFirst({
+        where: { campusId: req.user.campusId, code: data.code.toUpperCase() }
+      });
       if (duplicate) throw new HttpError(409, 'This student code is already in use.');
     }
 
     const updated = await prisma.student.update({
-      where: { id: existing.id },
+      where: { id: existing.id, campusId: req.user.campusId },
       data: {
+        campusId: req.user.campusId,
         code: data.code ? data.code.toUpperCase() : existing.code,
         firstName: data.firstName ?? existing.firstName,
         lastName: data.lastName ?? existing.lastName,
@@ -235,14 +278,14 @@ router.delete(
   '/:id',
   requireDeletePermission,
   asyncHandler(async (req, res) => {
-    const existing = await prisma.student.findUnique({
-      where: { id: req.params.id },
+    const existing = await prisma.student.findFirst({
+      where: { id: req.params.id, campusId: req.user.campusId },
       include: { class: true }
     });
     if (!existing) throw notFound('Student not found.');
     await assertClassAccess(req.user, existing.classId);
 
-    await prisma.student.delete({ where: { id: existing.id } });
+    await prisma.student.delete({ where: { id: existing.id, campusId: req.user.campusId } });
 
     await writeAudit(req, {
       action: 'DELETE',

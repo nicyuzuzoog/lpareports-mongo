@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
-import { scalesFor, termLabel } from '../lib/grading.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.resolve(__dirname, '../assets/logo.jpeg');
@@ -15,8 +14,22 @@ const COLORS = {
   line: '#dfe5ec',
   light: '#f4f6f8',
   white: '#ffffff',
-  amber: '#8a6100'
+  amber: '#8a6100',
+  rwandaYellow: '#f7d117'
 };
+
+// Exact Rwanda NESA primary grading bands (higher points are better).
+const RWANDA_GRADING_KEY = [
+  { grade: 'A', min: 70, max: 100, points: 6, remark: 'Excellent' },
+  { grade: 'B', min: 65, max: 69, points: 5, remark: 'Very Good' },
+  { grade: 'C', min: 60, max: 64, points: 4, remark: 'Good' },
+  { grade: 'D', min: 50, max: 59, points: 3, remark: 'Satisfactory' },
+  { grade: 'E', min: 40, max: 49, points: 2, remark: 'Adequate' },
+  { grade: 'S', min: 20, max: 39, points: 1, remark: 'Fair' },
+  { grade: 'F', min: 0, max: 19, points: 0, remark: 'Fail' }
+];
+
+const FAILURE_GRADES = ['F', 'S', 'E'];
 
 const PAGE = {
   width: 595.28,
@@ -44,6 +57,9 @@ function headerBand(doc, y, text, subtext) {
 
 function drawSchoolHeader(doc, payload) {
   const { school } = payload;
+  const schoolName = school.campusName || school.name;
+  const schoolAddress = school.campusLocation || school.address;
+  const campusLabel = school.campusShort ? `${school.campusShort} CAMPUS` : 'MAIN CAMPUS';
   let textX = PAGE.margin;
   let textWidth = PAGE.contentWidth;
 
@@ -57,21 +73,27 @@ function drawSchoolHeader(doc, payload) {
     }
   }
 
-  doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(19)
-    .text(school.name.toUpperCase(), textX, PAGE.margin + 2, { width: textWidth, align: 'center' });
+  const nameSize = schoolName.length > 22 ? 15 : 19;
+  doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(nameSize)
+    .text(schoolName.toUpperCase(), textX, PAGE.margin + 2, { width: textWidth, align: 'center' });
   doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(COLORS.green)
     .text(school.motto, textX, PAGE.margin + 27, { width: textWidth, align: 'center' });
   doc.font('Helvetica').fontSize(7.5).fillColor(COLORS.muted)
-    .text(`${school.address}  |  Tel: ${school.phone}  |  ${school.email}`, textX, PAGE.margin + 40, {
+    .text(`${schoolAddress}  |  Tel: ${school.phone}  |  ${school.email}`, textX, PAGE.margin + 40, {
       width: textWidth,
       align: 'center'
     });
   doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.muted)
-    .text('OFFICE OF THE HEAD TEACHER', textX, PAGE.margin + 52, { width: textWidth, align: 'center' });
+    .text(`${campusLabel}  |  OFFICE OF THE HEAD TEACHER`, textX, PAGE.margin + 52, {
+      width: textWidth,
+      align: 'center'
+    });
 
-  doc.moveTo(PAGE.margin, 108).lineTo(PAGE.margin + PAGE.contentWidth, 108).lineWidth(1.4).stroke(COLORS.navy);
-  doc.moveTo(PAGE.margin, 111).lineTo(PAGE.margin + PAGE.contentWidth, 111).lineWidth(0.5).stroke(COLORS.green);
-  return 120;
+  doc.moveTo(PAGE.margin, 106).lineTo(PAGE.margin + PAGE.contentWidth, 106)
+    .lineWidth(2).stroke(COLORS.rwandaYellow);
+  doc.moveTo(PAGE.margin, 109).lineTo(PAGE.margin + PAGE.contentWidth, 109).lineWidth(1.4).stroke(COLORS.navy);
+  doc.moveTo(PAGE.margin, 112).lineTo(PAGE.margin + PAGE.contentWidth, 112).lineWidth(0.5).stroke(COLORS.green);
+  return 121;
 }
 
 function infoPanel(doc, payload, y) {
@@ -79,12 +101,12 @@ function infoPanel(doc, payload, y) {
     ['STUDENT NAME', payload.student.fullName, 'STUDENT ID', payload.student.code],
     ['CLASS', `${payload.className} (${LEVEL_TITLES[payload.level]})`, 'GENDER', payload.student.gender === 'FEMALE' ? 'Female' : 'Male'],
     [
-      'ATTENDANCE',
-      payload.attendance.percent !== null
-        ? `${payload.attendance.present}/${payload.attendance.total} days (${payload.attendance.percent}%)`
-        : 'Not recorded',
-      'POSITION IN CLASS',
-      payload.summary.position ? `${payload.summary.positionLabel} of ${payload.summary.outOf}` : 'Not ranked'
+      'POSITION',
+      payload.summary.position
+        ? `Position: ${payload.summary.position} / ${payload.summary.outOf}`
+        : 'Position: - / -',
+      'GUARDIAN',
+      payload.student.guardianName || '-'
     ]
   ];
 
@@ -114,19 +136,20 @@ function infoPanel(doc, payload, y) {
 
 function drawTable(doc, payload, settings, startY) {
   const columns = [
-    { key: 'index', label: '#', width: 22, align: 'center' },
-    { key: 'subject', label: 'SUBJECT', width: 146, align: 'left' },
-    { key: 'ca', label: 'C/W', width: 38, align: 'center' },
-    { key: 'exam', label: 'EXAM', width: 40, align: 'center' },
-    { key: 'total', label: 'TOTAL', width: 43, align: 'center' },
-    { key: 'grade', label: 'GRADE', width: 40, align: 'center' },
+    { key: 'index', label: '#', width: 20, align: 'center' },
+    { key: 'subject', label: 'SUBJECT', width: 138, align: 'left' },
+    { key: 'ca', label: 'C/W', width: 36, align: 'center' },
+    { key: 'exam', label: 'EXAM', width: 38, align: 'center' },
+    { key: 'total', label: 'TOTAL', width: 40, align: 'center' },
+    { key: 'grade', label: 'GRADE', width: 36, align: 'center' },
+    { key: 'points', label: 'PTS', width: 28, align: 'center' },
     {
       key: 'remark',
-      label: payload.level === 'UPPER_PRIMARY' ? 'REMARKS' : 'COMPETENCY / REMARKS',
-      width: 116,
+      label: payload.level === 'UPPER_PRIMARY' ? 'REMARKS' : 'COMPETENCY',
+      width: 100,
       align: 'left'
     },
-    { key: 'teacher', label: 'TEACHER', width: 70, align: 'left' }
+    { key: 'teacher', label: 'TEACHER', width: 79.28, align: 'left' }
   ];
 
   const xs = [];
@@ -156,7 +179,7 @@ function drawTable(doc, payload, settings, startY) {
     doc.font('Helvetica-Bold').fontSize(7.8);
     const subjectHeight = doc.heightOfString(subjectText, { width: columns[1].width - 8 });
     doc.font('Helvetica').fontSize(7);
-    const remarkHeight = doc.heightOfString(String(remark || '-'), { width: columns[6].width - 8 });
+    const remarkHeight = doc.heightOfString(String(remark || '-'), { width: columns[7].width - 8 });
     const rowHeight = Math.max(18, Math.ceil(Math.max(subjectHeight, remarkHeight) + rowPadding * 2));
 
     if (y + rowHeight > 760) {
@@ -179,12 +202,19 @@ function drawTable(doc, payload, settings, startY) {
       .text(mark.examScore === null ? '-' : String(mark.examScore), xs[3] + 4, textY, { width: columns[3].width - 8, align: 'center', lineBreak: false });
     doc.font('Helvetica-Bold').fillColor(COLORS.navy)
       .text(mark.total === null ? '-' : String(mark.total), xs[4] + 4, textY, { width: columns[4].width - 8, align: 'center', lineBreak: false });
-    doc.font('Helvetica-Bold').fillColor(mark.grade && ['F9', 'U', 'E'].includes(mark.grade) ? COLORS.amber : COLORS.green)
+    doc.font('Helvetica-Bold').fontSize(7.6)
+      .fillColor(mark.grade && FAILURE_GRADES.includes(mark.grade) ? COLORS.amber : COLORS.green)
       .text(mark.grade || '-', xs[5] + 4, textY, { width: columns[5].width - 8, align: 'center', lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(7.6).fillColor(COLORS.navy)
+      .text(mark.points === null || mark.points === undefined ? '-' : String(mark.points), xs[6] + 4, textY, {
+        width: columns[6].width - 8,
+        align: 'center',
+        lineBreak: false
+      });
     doc.font('Helvetica').fontSize(7).fillColor(COLORS.ink)
-      .text(String(remark || '-'), xs[6] + 4, textY, { width: columns[6].width - 8 });
+      .text(String(remark || '-'), xs[7] + 4, textY, { width: columns[7].width - 8 });
     doc.font('Helvetica').fontSize(6.5).fillColor(COLORS.muted)
-      .text(mark.teacher || '-', xs[7] + 4, textY, { width: columns[7].width - 8, lineBreak: false, ellipsis: true });
+      .text(mark.teacher || '-', xs[8] + 4, textY, { width: columns[8].width - 8, lineBreak: false, ellipsis: true });
 
     y += rowHeight;
   });
@@ -201,11 +231,11 @@ function drawTable(doc, payload, settings, startY) {
 
 function summaryStrip(doc, payload, y) {
   const cells = [
-    ['SUBJECTS ASSESSED', payload.summary.subjectsAssessed],
-    ['TOTAL MARKS', payload.summary.totalMarks],
+    ['SUBJECTS', payload.summary.subjectsAssessed],
+    ['AGGREGATE PTS', payload.summary.aggregate ?? '-'],
     ['AVERAGE', `${payload.summary.average ?? '-'}%`],
     ['OVERALL GRADE', payload.summary.grade],
-    ['POSITION', payload.summary.position ? `${payload.summary.positionLabel} / ${payload.summary.outOf}` : '-']
+    ['POSITION', payload.summary.position ? `${payload.summary.position} / ${payload.summary.outOf}` : '-']
   ];
   const height = 42;
   const width = PAGE.contentWidth / cells.length;
@@ -225,13 +255,37 @@ function summaryStrip(doc, payload, y) {
 }
 
 function gradingKey(doc, payload, settings, y) {
-  const scale = scalesFor(settings, payload.level);
-  const parts = scale.map((item) => `${item.grade} ${item.min}-${item.max} (${item.remark})`);
-  doc.font('Helvetica-Bold').fontSize(6.5).fillColor(COLORS.muted)
-    .text('GRADING KEY:', PAGE.margin, y, { continued: true, lineBreak: false })
-    .font('Helvetica').fontSize(6.5).fillColor(COLORS.ink)
-    .text(` ${parts.join('   |   ')}`, { width: PAGE.contentWidth });
-  return y + Math.max(12, doc.heightOfString(parts.join(' | '), { width: PAGE.contentWidth, fontSize: 6.5 }) + 6);
+  // Always print the national bands exactly, regardless of local settings.
+  const scale = RWANDA_GRADING_KEY;
+  doc.font('Helvetica-Bold').fontSize(6.8).fillColor(COLORS.navy)
+    .text('RWANDA NATIONAL GRADING KEY (NESA)', PAGE.margin, y, { lineBreak: false });
+
+  const keyY = y + 12;
+  const cellWidth = PAGE.contentWidth / scale.length;
+  const cellHeight = 32;
+  doc.rect(PAGE.margin, keyY, PAGE.contentWidth, cellHeight).fill('#f7f9fb');
+
+  scale.forEach((item, index) => {
+    const x = PAGE.margin + index * cellWidth;
+    doc.rect(x, keyY, cellWidth, cellHeight).lineWidth(0.4).stroke(COLORS.line);
+    doc.font('Helvetica-Bold').fontSize(11)
+      .fillColor(FAILURE_GRADES.includes(item.grade) ? COLORS.amber : COLORS.green)
+      .text(item.grade, x + 3, keyY + 4, { width: cellWidth - 6, align: 'center', lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(6.6).fillColor(COLORS.ink)
+      .text(`${item.min}-${item.max}`, x + 3, keyY + 17, {
+        width: cellWidth - 6,
+        align: 'center',
+        lineBreak: false
+      });
+    doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
+      .text(`${item.points} pt${item.points === 1 ? '' : 's'}`, x + 3, keyY + 25, {
+        width: cellWidth - 6,
+        align: 'center',
+        lineBreak: false
+      });
+  });
+
+  return keyY + cellHeight + 8;
 }
 
 function commentsBlock(doc, payload, settings, y) {
@@ -288,10 +342,12 @@ function commentsBlock(doc, payload, settings, y) {
 }
 
 function compactHeader(doc, payload, title) {
+  const schoolName = payload.school.campusName || payload.school.name;
+  const schoolAddress = payload.school.campusLocation || payload.school.address;
   doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(12)
-    .text(payload.school.name.toUpperCase(), PAGE.margin, PAGE.margin, { width: PAGE.contentWidth, align: 'center' });
+    .text(schoolName.toUpperCase(), PAGE.margin, PAGE.margin, { width: PAGE.contentWidth, align: 'center' });
   doc.font('Helvetica').fontSize(7).fillColor(COLORS.muted)
-    .text(`${payload.student.fullName}  |  ${payload.student.code}  |  ${payload.className}`, PAGE.margin, PAGE.margin + 16, {
+    .text(`${schoolAddress}  |  ${payload.student.fullName}  |  ${payload.student.code}  |  ${payload.className}`, PAGE.margin, PAGE.margin + 16, {
       width: PAGE.contentWidth,
       align: 'center'
     });
@@ -401,7 +457,7 @@ function cumulativePage(doc, payload, settings) {
     values.forEach((value, index) => {
       doc.font(index === 0 || index === 4 ? 'Helvetica-Bold' : 'Helvetica')
         .fontSize(index === 0 ? 7.2 : 7)
-        .fillColor(index === 0 ? COLORS.ink : COLORS.ink)
+        .fillColor(index === 5 && FAILURE_GRADES.includes(subject.grade) ? COLORS.amber : COLORS.ink)
         .text(String(value), cellX + 4, y + 4.5, {
           width: cols[index].width - 8,
           align: index === 0 || index === 6 ? 'left' : 'center'
@@ -452,7 +508,7 @@ function footers(doc, payload) {
       .lineWidth(0.4).stroke(COLORS.line);
     doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
       .text(
-        `LPACAMIS  |  ${payload.student.code}  |  ${payload.termLabel} ${payload.year}  |  Generated ${new Date().toLocaleString('en-GB')}`,
+        `LPAREPORTS  |  ${payload.school.campusName || payload.school.name}  |  ${payload.student.code}  |  ${payload.termLabel} ${payload.year}`,
         PAGE.margin,
         footerY + 5,
         { width: PAGE.contentWidth - 90 }
@@ -474,8 +530,8 @@ export function buildReportPdf(payload, settings) {
         bufferPages: true,
         info: {
           Title: `${payload.student.fullName} - ${payload.termLabel} ${payload.year} Report Card`,
-          Author: settings.schoolName,
-          Subject: 'Student Report Card'
+          Author: payload.school.campusName || payload.school.name || settings.schoolName,
+          Subject: 'LPAREPORTS Student Report Card'
         }
       });
 
