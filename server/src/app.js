@@ -5,7 +5,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
-import { Prisma } from '@prisma/client';
+import mongoose from 'mongoose';
 import { config } from './config/env.js';
 import { verifyToken } from './lib/jwt.js';
 import authRoutes from './routes/auth.js';
@@ -101,16 +101,20 @@ app.use((error, req, res, next) => {
     });
   }
 
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === 'P2002') {
-      return res.status(409).json({ message: 'A record with these details already exists.' });
-    }
-    if (error.code === 'P2003') {
-      return res.status(409).json({ message: 'This record is still linked to other records.' });
-    }
-    if (error.code === 'P2025') {
-      return res.status(404).json({ message: 'Record not found.' });
-    }
+  if (error?.code === 11000 || error?.code === 11001) {
+    return res.status(409).json({ message: 'A record with these details already exists.' });
+  }
+  if (error instanceof mongoose.Error.ValidationError) {
+    return res.status(400).json({
+      message: 'Please check the highlighted fields.',
+      errors: Object.entries(error.errors).map(([field, detail]) => ({
+        field,
+        message: detail.message
+      }))
+    });
+  }
+  if (error?.name === 'BulkWriteError') {
+    return res.status(409).json({ message: 'A record with these details already exists.' });
   }
 
   const status = error.status || 500;

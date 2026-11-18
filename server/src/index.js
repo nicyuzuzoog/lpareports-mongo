@@ -3,11 +3,15 @@ import { config } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 
 async function start() {
+  if (!config.databaseUrl) {
+    console.error('MONGODB_URI is not set. Add your MongoDB Atlas connection string.');
+    process.exit(1);
+  }
   try {
     await prisma.$connect();
-    console.log('Database connection established.');
+    console.log('MongoDB connection established.');
   } catch (error) {
-    console.error('Unable to connect to the database:', error.message);
+    console.error('Unable to connect to MongoDB Atlas:', error.message);
     process.exit(1);
   }
 

@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/lib/prisma.js';
 import {
   DEFAULT_SETTINGS,
   computeTotal,
@@ -8,7 +8,11 @@ import {
   assessmentCompetency
 } from '../src/lib/grading.js';
 
-const prisma = new PrismaClient();
+if (!process.env.MONGODB_URI && !process.env.MONGO_URI && !process.env.DATABASE_URL) {
+  console.error('Set MONGODB_URI (or MONGO_URI) to your MongoDB Atlas connection string before seeding.');
+  process.exit(1);
+}
+await prisma.$connect();
 
 const CLASSES = [
   { name: 'Baby Class', level: 'NURSERY' },
@@ -238,11 +242,13 @@ async function main() {
     await prisma.teacherClass.deleteMany({ where: { userId: record.id } });
     await prisma.teacherSubject.deleteMany({ where: { userId: record.id } });
     if (item.classNames?.length) {
+      await prisma.teacherClass.deleteMany({ where: { userId: record.id } });
       await prisma.teacherClass.createMany({
         data: item.classNames.map((name) => ({ userId: record.id, classId: classes[name].id }))
       });
     }
     if (item.subjectCodes?.length) {
+      await prisma.teacherSubject.deleteMany({ where: { userId: record.id } });
       await prisma.teacherSubject.createMany({
         data: item.subjectCodes.map((code) => ({ userId: record.id, subjectId: subjects[code].id }))
       });

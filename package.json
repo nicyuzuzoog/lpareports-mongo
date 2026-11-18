@@ -8,10 +8,7 @@
     "dev": "concurrently -n api,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "build": "npm --prefix client run build",
     "start": "npm --prefix server start",
-    "db:push": "npm --prefix server run db:push",
-    "db:migrate": "npm --prefix server run db:migrate",
-    "db:seed": "npm --prefix server run db:seed",
-    "prisma:generate": "npm --prefix server run prisma:generate"
+    "db:seed": "npm --prefix server run db:seed"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

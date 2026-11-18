@@ -2,10 +2,10 @@
 
 A full-stack school report-card and assessment system for **Nursery**, **Lower Primary** and **Upper Primary**.
 
-- **API:** Node.js, Express 4, Prisma 6, PostgreSQL
+- **API:** Node.js, Express 4, Mongoose 8, **MongoDB Atlas**
 - **Web app:** React 19, Vite 7, Bootstrap 5, Bootstrap Icons
 - **PDF:** server-side PDFKit report cards (single + bulk ZIP)
-- **Deploy:** API + database on Render, frontend on Vercel
+- **Deploy:** API on Render, MongoDB on Atlas, frontend on Vercel
 
 No gradients are used in the interface; the design is flat, clean and professional.
 
@@ -70,23 +70,21 @@ lpacamis/
 │   │   └── utils/
 │   └── vercel.json
 ├── server/                  Express API
-│   ├── prisma/
-│   │   ├── schema.prisma
-│   │   ├── migrations/      initial PostgreSQL migration
-│   │   └── seed.js
+│   ├── prisma/seed.js       demo data seed script (legacy folder name)
 │   └── src/
 │       ├── assets/logo.jpeg
 │       ├── config/          environment
-│       ├── lib/             prisma, jwt, audit, grading, PDF
+│       ├── lib/             mongo repository facade, jwt, audit, grading, PDF
 │       ├── middleware/      auth + role guards
+│       ├── models/          Mongoose schemas + indexes
 │       ├── routes/          auth, users, classes, subjects, students,
 │       │                    assessments, reports, analytics,
 │       │                    dashboard, audit, settings
 │       ├── services/        report computation
 │       ├── app.js
 │       └── index.js
-├── docker-compose.yml       local PostgreSQL
-├── render.yaml              Render blueprint (API + DB)
+├── docker-compose.yml       local MongoDB (optional)
+├── render.yaml              Render blueprint (API only; DB is on Atlas)
 └── package.json             root convenience scripts
 ```
 
@@ -97,7 +95,7 @@ lpacamis/
 ### Requirements
 
 - Node.js **20+** (tested on Node 24)
-- PostgreSQL **14+**, or Docker for `docker-compose.yml`
+- A MongoDB Atlas cluster, or Docker for the bundled local MongoDB
 
 ### Steps
 
@@ -106,16 +104,17 @@ lpacamis/
 npm run install:all
 npm install
 
-# 2. Start PostgreSQL (or use an existing server)
+# 2. Start MongoDB locally (or skip and use Atlas)
 docker compose up -d
 
 # 3. Configure the API
 cd server
 copy .env.example .env      # Windows
 # cp .env.example .env      # macOS / Linux
+# Set MONGODB_URI to your Atlas URI, or
+# mongodb://localhost:27017/lpacamis for the local container
 
-# 4. Create the schema and demo data
-npx prisma migrate deploy
+# 4. Create the demo data
 npm run db:seed
 
 # 5. Run API and frontend together from the project root
@@ -126,13 +125,13 @@ npm run dev
 - Web app: <http://localhost:5173>
 - API: <http://localhost:5000/api/health>
 
-`npm run dev` starts the API on port 5000 and Vite on 5173 with an `/api` proxy.
+The Mongoose schemas create their indexes automatically at startup; no migration step is required.
 
 ### Environment variables (`server/.env`)
 
 | Variable | Required | Description |
 | --- | :-: | --- |
-| `DATABASE_URL` | ✓ | PostgreSQL connection string |
+| `MONGODB_URI` | ✓ | MongoDB Atlas connection string, including database name (`MONGO_URI` and `DATABASE_URL` are accepted aliases) |
 | `JWT_SECRET` | ✓ in production | Long random signing secret |
 | `JWT_EXPIRES_IN` | — | Token lifetime, default `12h` |
 | `CLIENT_ORIGINS` | ✓ in production | Comma-separated allowed frontend origins |
@@ -162,46 +161,52 @@ Run `npm run db:seed` once, then sign in with:
 
 **Change these passwords after the first deployment.**
 
-The seed creates 10 classes, Nursery/Lower/Upper Primary subjects, 50 students, and demo report cards with marks for Top Class, P.1, P.4 and P.7 across Terms I–III (Term III includes the cumulative page).
+The seed creates 10 classes, Nursery/Lower/Upper Primary subjects, 50 students, and demo report cards with marks for Top Class, P.1, P.4 and P.7 across Terms I–III (Term III includes the cumulative page). Seeding is idempotent: it can be re-run without creating duplicate students or reports.
 
 ---
 
 ## 5. Deployment
 
-### 5.1 Database + API on Render
+### 5.1 MongoDB Atlas
+
+1. Create a free Atlas cluster (M0) in a region near your Render service (e.g. AWS Oregon).
+2. **Database Access:** create a database user with read/write access to `lpacamis`.
+3. **Network Access:** allow `0.0.0.0/0` so Render can connect (Atlas's free tier has no Render-specific integration), or add Render's outbound IPs if you have them.
+4. Get the connection string (**Connect → Drivers → Node.js**) and make sure it includes the database name:
+   ```
+   mongodb+srv://USER:PASSWORD@cluster.mongodb.net/lpacamis?retryWrites=true&w=majority
+   ```
+5. Use this as `MONGODB_URI` locally and on Render.
+
+### 5.2 API on Render
 
 1. Push this repository to GitHub.
-2. In Render choose **New → Blueprint** and select the repository. `render.yaml` creates:
-   - PostgreSQL database `lpacamis-db`
-   - Web service `lpacamis-api` from `server/`
-3. Set `CLIENT_ORIGINS` on the API service to your Vercel URL(s), e.g. `https://lpacamis.vercel.app`.
-4. Deploy. The build runs `prisma generate` and `prisma migrate deploy` automatically.
-5. Seed the production database once from the Render shell:
-
+2. In Render choose **New → Blueprint** and select the repository. `render.yaml` creates the `lpacamis-api` web service.
+3. When prompted, set:
+   - `MONGODB_URI` — the Atlas connection string from above
+   - `CLIENT_ORIGINS` — your Vercel URL (can be a placeholder until Vercel is deployed)
+4. Deploy. The build is just `npm install`; the API builds its own indexes on boot.
+5. Seed the Atlas database once from **Render → lpacamis-api → Shell**:
    ```bash
    npm run db:seed
    ```
 
-   Or skip seeding and create the first Super Admin with a one-off script.
-
-Manual setup (without the blueprint) uses:
+Manual setup (without the blueprint):
 
 - Root directory: `server`
-- Build command: `npm install --include=dev && npx prisma generate && npx prisma migrate deploy`
+- Build command: `npm install`
 - Start command: `npm start`
 - Health check: `/api/health`
 
-### 5.2 Frontend on Vercel
+### 5.3 Frontend on Vercel
 
 1. Import the repository in Vercel.
 2. Set **Root Directory** to `client`.
 3. Framework preset: **Vite** (build `npm run build`, output `dist`).
 4. Add environment variable:
-
    ```
    VITE_API_URL = https://lpacamis-api.onrender.com/api
    ```
-
 5. Deploy. `client/vercel.json` already adds the SPA rewrite for React Router.
 
 > Vercel preview URLs (`*.vercel.app`) are accepted by CORS by default. Set `ALLOW_VERCEL_PREVIEWS=false` to restrict to explicit origins.
@@ -257,7 +262,7 @@ total = (coursework × courseworkWeight + exam × examWeight) / (courseworkWeigh
 - Both component scores are out of 100.
 - Missing components are treated as zero for the total, but a report with no marks is not ranked.
 - Bands are matched from the highest score down, so a score equal to a band boundary takes the higher grade.
-- Default scales are stored as JSON in the `Setting` table and are fully editable in **Settings → Grading scales**.
+- Default scales are stored as a JSON object in the `settings` document and are fully editable in **Settings → Grading scales**.
 - Term III reports append a cumulative table (Term I, Term II, Term III, average) and a cumulative overall line.
 
 ---
@@ -271,18 +276,7 @@ npm run install:all     # install server + client
 npm run dev             # run API + Vite together
 npm run build           # production frontend build
 npm run start           # start API
-npm run db:push         # push schema without a migration
-npm run db:migrate      # apply committed migrations
-npm run db:seed         # seed demo data
-npm run prisma:generate # regenerate Prisma client
-```
-
-Server only:
-
-```bash
-cd server
-npm run db:seed
-npx prisma studio
+npm run db:seed         # seed demo data into MongoDB
 ```
 
 ---
@@ -293,3 +287,4 @@ npx prisma studio
 - The report-card layout follows a standard Ugandan primary-school report format. Field labels, signatories and grading bands can be adjusted in Settings and `server/src/lib/pdf.js`.
 - Audit logs are append-only by design: no update or delete endpoint exists.
 - Delete permission never bypasses role restrictions; Super Admin can always delete, other users need `canDelete`.
+- The API uses a small repository facade (`server/src/lib/prisma.js`) over Mongoose models (`server/src/models/`). It preserves the original query API used by the routes while storing all data in MongoDB collections.

@@ -28,9 +28,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# prisma
-server/prisma/*.db
-server/prisma/migrations/dev.db*
+# local databases
+*.db
 
 # misc
 coverage/

@@ -14,7 +14,8 @@ export const config = {
   env: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 5000),
-  databaseUrl: process.env.DATABASE_URL,
+  // MongoDB Atlas connection string. MONGO_URI / DATABASE_URL are accepted aliases.
+  databaseUrl: process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL,
   jwtSecret: process.env.JWT_SECRET || 'lpacamis-development-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   clientOrigins: origins,

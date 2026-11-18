@@ -1,10 +1,3 @@
-databases:
-  - name: lpacamis-db
-    databaseName: lpacamis
-    user: lpacamis
-    plan: free
-    region: oregon
-
 services:
   - type: web
     name: lpacamis-api
@@ -12,15 +5,15 @@ services:
     plan: free
     region: oregon
     rootDir: server
-    buildCommand: npm install --include=dev && npx prisma generate && npx prisma migrate deploy
+    buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: lpacamis-db
-          property: connectionString
+      # Paste the MongoDB Atlas connection string when the blueprint asks.
+      # Include the database name, e.g. mongodb+srv://user:pass@cluster.mongodb.net/lpacamis
+      - key: MONGODB_URI
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
