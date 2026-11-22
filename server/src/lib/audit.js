@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 
 /**
@@ -9,6 +10,9 @@ export async function writeAudit(req, entry) {
     const user = req.user;
     await prisma.auditLog.create({
       data: {
+        id: randomUUID(),
+        // Global/system contexts fall back to MAIN; token campus wins for the
+        // global Super Admin so audit entries stay campus scoped.
         campusId: user?.campusId || entry.campusId || 'MAIN',
         userId: user?.id || null,
         userName: user?.name || entry.userName || 'System',

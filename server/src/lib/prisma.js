@@ -1,481 +1,383 @@
 /**
- * Small repository facade over MongoDB/Mongoose.
+ * Thin Prisma-compatible facade used by the rest of the API.
  *
- * The rest of the API was written against a Prisma-style data API. Keeping
- * that surface here means the routes, services and audit code do not need to
- * know which database is behind them, and makes the MongoDB Atlas migration a
- * single-file swap. Query translation covers the operators and relation
- * includes used by this application.
+ * The routes were originally written against a Mongo-style repository with a
+ * Prisma-shaped API. This module keeps that call surface (`prisma.user.find...`,
+ * includes, nested writes, `$transaction`) while forwarding everything to the
+ * generated Prisma Client for MySQL. Only two compatibility fixes live here:
+ *
+ *   1. `mode: 'insensitive'` is stripped recursively (MySQL is already
+ *      case-insensitive with the default collation).
+ *   2. `orderBy` on relation names is handled in memory after Prisma has
+ *      attached the includes, because Prisma cannot sort by relations.
+ *
+ * No Mongo id translation (`_id`) remains — ids are plain Strings in MySQL.
  */
-import { models, modelMeta, connectMongo, disconnectMongo } from '../models/index.js';
+import { PrismaClient } from '@prisma/client';
 
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date);
+/** Raw client, exported for code that needs Prisma directly. */
+export const client = new PrismaClient();
 
-const plain = (doc) => (doc && typeof doc.toObject === 'function' ? doc.toObject() : doc);
-const plainMany = (docs) => docs.map(plain);
+const MODEL_KEYS = [
+  'user',
+  'teacherClass',
+  'teacherSubject',
+  'schoolClass',
+  'subject',
+  'student',
+  'reportCard',
+  'mark',
+  'setting',
+  'systemSetting',
+  'auditLog'
+];
 
-async function findDocs(modelKey, filter) {
-  return plainMany(await models[modelKey].find(filter));
-}
-
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function translateValue(value) {
-  if (value === null || value === undefined || !isObject(value)) return value;
-  if (Array.isArray(value)) return { $in: value };
-
-  const result = {};
-  for (const [operator, operand] of Object.entries(value)) {
-    switch (operator) {
-      case 'in':
-        result.$in = operand;
-        break;
-      case 'not':
-        result.$ne = operand;
-        break;
-      case 'contains':
-        result.$regex = escapeRegex(operand);
-        if (value.mode === 'insensitive') result.$options = 'i';
-        break;
-      case 'startsWith':
-        result.$regex = `^${escapeRegex(operand)}`;
-        if (value.mode === 'insensitive') result.$options = 'i';
-        break;
-      case 'endsWith':
-        result.$regex = `${escapeRegex(operand)}$`;
-        if (value.mode === 'insensitive') result.$options = 'i';
-        break;
-      case 'has':
-        result.$in = [operand];
-        break;
-      case 'gte':
-        result.$gte = operand;
-        break;
-      case 'lte':
-        result.$lte = operand;
-        break;
-      case 'gt':
-        result.$gt = operand;
-        break;
-      case 'lt':
-        result.$lt = operand;
-        break;
-      case 'mode':
-        break;
-      default:
-        result[operator] = translateValue(operand);
-    }
-  }
-  return result;
-}
-
-/** Relation filters used in `where`, e.g. `student: { OR: [...] }`. */
-const RELATION_FILTERS = {
-  Student: { class: { model: 'schoolClass', local: 'classId' } },
-  ReportCard: {
-    class: { model: 'schoolClass', local: 'classId' },
-    student: { model: 'student', local: 'studentId' }
-  }
+/** Unique selectors Prisma accepts in `findUnique` / `update` / `upsert` / `delete`. */
+const UNIQUE_KEYS = {
+  user: ['campusId_email'],
+  teacherClass: ['campusId_userId_classId'],
+  teacherSubject: ['campusId_userId_subjectId'],
+  schoolClass: ['campusId_name'],
+  subject: ['campusId_code', 'campusId_name'],
+  student: ['campusId_code'],
+  reportCard: ['campusId_studentId_term_year_type'],
+  mark: ['campusId_reportCardId_subjectId'],
+  setting: [],
+  systemSetting: [],
+  auditLog: []
 };
 
-async function translateWhere(meta, where = {}) {
-  const result = {};
-  for (const [key, raw] of Object.entries(where || {})) {
-    if (raw === undefined) continue;
-
-    if (['OR', 'AND', 'NOT'].includes(key)) {
-      result[`$${key.toLowerCase()}`] = await Promise.all(
-        raw.map((entry) => translateWhere(meta, entry))
-      );
-      continue;
-    }
-    if (key === 'id') {
-      result._id = isObject(raw) ? translateValue(raw) : String(raw);
-      continue;
-    }
-
-    const relation = RELATION_FILTERS[meta]?.[key];
-    if (relation && isObject(raw)) {
-      const related = await findDocs(relation.model, await translateWhere(modelMeta[relation.model], raw));
-      result[relation.local] = { $in: related.map((doc) => doc.id) };
-      continue;
-    }
-
-    result[key] = translateValue(raw);
-  }
-  return result;
-}
-
-/** Compound unique keys accepted by Prisma's `where`. */
-const COMPOUND_KEYS = {
+/**
+ * Compound selectors, including the two legacy aliases used by the old
+ * repository. They are expanded into plain scalar filters so that extra keys
+ * such as `campusId` can still be honoured by a `findFirst` fallback.
+ */
+const COMPOUND_FIELDS = {
+  campusId_email: ['campusId', 'email'],
+  campusId_userId_classId: ['campusId', 'userId', 'classId'],
+  campusId_userId_subjectId: ['campusId', 'userId', 'subjectId'],
+  campusId_name: ['campusId', 'name'],
+  campusId_code: ['campusId', 'code'],
+  campusId_studentId_term_year_type: ['campusId', 'studentId', 'term', 'year', 'type'],
+  campusId_reportCardId_subjectId: ['campusId', 'reportCardId', 'subjectId'],
+  // Legacy Mongo-facade keys (the old report cards were unique per student,
+  // term and year, and had no `type` field).
   studentId_term_year: ['studentId', 'term', 'year'],
   reportCardId_subjectId: ['reportCardId', 'subjectId']
 };
 
-function flattenUnique(where = {}) {
-  const result = {};
-  for (const [key, value] of Object.entries(where)) {
-    if (COMPOUND_KEYS[key]) {
-      for (const field of COMPOUND_KEYS[key]) result[field] = value[field];
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-function mapIdField(data = {}) {
-  const result = { ...data };
-  if (Object.prototype.hasOwnProperty.call(result, 'id')) {
-    result._id = String(result.id);
-    delete result.id;
-  }
-  return result;
-}
-
-/** Relation loaders returning plain objects in the shape the routes expect. */
-const RELATIONS = {
-  User: {
-    classes: {
-      model: 'TeacherClass',
-      load: async (doc) => {
-        const rows = await findDocs('teacherClass', { userId: doc.id });
-        const classes = await findDocs('schoolClass', { _id: { $in: rows.map((row) => row.classId) } });
-        const byId = new Map(classes.map((item) => [item.id, item]));
-        return rows.map((row) => ({ ...row, class: byId.get(row.classId) || null }));
-      }
-    },
-    subjects: {
-      model: 'TeacherSubject',
-      load: async (doc) => {
-        const rows = await findDocs('teacherSubject', { userId: doc.id });
-        const subjects = await findDocs('subject', { _id: { $in: rows.map((row) => row.subjectId) } });
-        const byId = new Map(subjects.map((item) => [item.id, item]));
-        return rows.map((row) => ({ ...row, subject: byId.get(row.subjectId) || null }));
-      }
-    },
-    classTeacherOf: {
-      model: 'SchoolClass',
-      load: (doc) => findDocs('schoolClass', { classTeacherId: doc.id })
-    }
-  },
-  SchoolClass: {
-    students: { model: 'Student', load: (doc) => findDocs('student', { classId: doc.id }) },
-    reportCards: { model: 'ReportCard', load: (doc) => findDocs('reportCard', { classId: doc.id }) },
-    classTeacher: {
-      model: 'User',
-      load: async (doc) => (await findDocs('user', { _id: doc.classTeacherId || '' }))[0] || null
-    },
-    teachers: { model: 'TeacherClass', load: (doc) => findDocs('teacherClass', { classId: doc.id }) }
-  },
-  Subject: {
-    marks: { model: 'Mark', load: (doc) => findDocs('mark', { subjectId: doc.id }) },
-    teachers: { model: 'TeacherSubject', load: (doc) => findDocs('teacherSubject', { subjectId: doc.id }) }
-  },
-  Student: {
-    class: {
-      model: 'SchoolClass',
-      load: async (doc) => (await findDocs('schoolClass', { _id: doc.classId || '' }))[0] || null
-    },
-    reportCards: {
-      model: 'ReportCard',
-      load: (doc) => findDocs('reportCard', { studentId: doc.id })
-    }
-  },
-  ReportCard: {
-    student: { model: 'Student', load: async (doc) => (await findDocs('student', { _id: doc.studentId || '' }))[0] || null },
-    class: { model: 'SchoolClass', load: async (doc) => (await findDocs('schoolClass', { _id: doc.classId || '' }))[0] || null },
-    marks: { model: 'Mark', load: (doc) => findDocs('mark', { reportCardId: doc.id }) },
-    submittedBy: { model: 'User', load: async (doc) => (await findDocs('user', { _id: doc.submittedById || '' }))[0] || null },
-    approvedBy: { model: 'User', load: async (doc) => (await findDocs('user', { _id: doc.approvedById || '' }))[0] || null },
-    createdBy: { model: 'User', load: async (doc) => (await findDocs('user', { _id: doc.createdById || '' }))[0] || null }
-  },
-  Mark: {
-    reportCard: { model: 'ReportCard', load: async (doc) => (await findDocs('reportCard', { _id: doc.reportCardId || '' }))[0] || null },
-    subject: { model: 'Subject', load: async (doc) => (await findDocs('subject', { _id: doc.subjectId || '' }))[0] || null },
-    teacher: { model: 'User', load: async (doc) => (await findDocs('user', { _id: doc.teacherId || '' }))[0] || null }
-  },
-  AuditLog: {
-    user: { model: 'User', load: async (doc) => (await findDocs('user', { _id: doc.userId || '' }))[0] || null }
-  }
+/** Relations that can appear as `orderBy` keys (Prisma cannot sort by these). */
+const RELATION_NAMES = {
+  user: [
+    'classes',
+    'subjects',
+    'assignedClasses',
+    'createdStudents',
+    'submittedReports',
+    'approvedReports',
+    'createdReports',
+    'taughtMarks'
+  ],
+  teacherClass: ['user', 'class'],
+  teacherSubject: ['user', 'subject'],
+  schoolClass: ['students', 'reportCards', 'classTeacher', 'teacherClasses'],
+  subject: ['marks', 'teacherSubjects'],
+  student: ['reportCards', 'class', 'creator'],
+  reportCard: ['student', 'class', 'marks', 'submittedBy', 'approvedBy', 'createdBy'],
+  mark: ['reportCard', 'subject', 'teacher'],
+  setting: [],
+  systemSetting: [],
+  auditLog: []
 };
 
-/** Simple predicate matcher for nested relation filters such as `students: { where: { isActive: true } }`. */
-function matchesRelationWhere(doc, where = {}) {
-  return Object.entries(where).every(([key, raw]) => {
-    if (raw === undefined) return true;
-    if (key === 'id') return String(doc.id) === String(raw);
-    const value = doc[key];
-    if (isObject(raw)) {
-      if ('in' in raw) return raw.in.includes(value);
-      if ('not' in raw) return value !== raw.not;
-      if ('contains' in raw) {
-        return String(value ?? '').toLowerCase().includes(String(raw.contains).toLowerCase());
+const isObject = (value) =>
+  value !== null &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  !(value instanceof Date) &&
+  !(typeof Buffer !== 'undefined' && Buffer.isBuffer(value));
+
+/** Recursively remove Mongo-only `mode` operators; leave every other operator alone. */
+function sanitize(value) {
+  if (Array.isArray(value)) return value.map(sanitize);
+  if (!isObject(value)) return value;
+
+  const result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (key === 'mode') continue;
+    result[key] = sanitize(raw);
+  }
+  return result;
+}
+
+function expandCompoundKeys(value) {
+  if (Array.isArray(value)) return value.map(expandCompoundKeys);
+  if (!isObject(value)) return value;
+
+  const result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const fields = COMPOUND_FIELDS[key];
+    if (fields && isObject(raw)) {
+      for (const field of fields) {
+        if (raw[field] !== undefined) result[field] = expandCompoundKeys(raw[field]);
+      }
+      if (key === 'studentId_term_year' && result.type === undefined) result.type = 'TERM';
+    } else {
+      result[key] = expandCompoundKeys(raw);
+    }
+  }
+  return result;
+}
+
+function prepareArgs(args = {}) {
+  const clean = sanitize(args);
+  if (!isObject(clean.where)) return clean;
+  return { ...clean, where: expandCompoundKeys(clean.where) };
+}
+
+function isDirectUnique(modelKey, where) {
+  const keys = Object.keys(where).filter((key) => where[key] !== undefined);
+  if (keys.length !== 1) return false;
+  const [key] = keys;
+  if (key === 'id') return typeof where.id === 'string';
+  return Boolean(UNIQUE_KEYS[modelKey]?.includes(key) && isObject(where[key]));
+}
+
+function orderRules(modelKey, orderBy) {
+  if (!orderBy) return null;
+
+  const relations = new Set(RELATION_NAMES[modelKey] || []);
+  const rules = [];
+  const scalarOrderBy = [];
+  const relationPaths = new Set();
+  let hasRelation = false;
+
+  for (const rule of Array.isArray(orderBy) ? orderBy : [orderBy]) {
+    if (!isObject(rule)) continue;
+    for (const [key, direction] of Object.entries(rule)) {
+      if (direction === undefined) continue;
+      if (relations.has(key)) {
+        hasRelation = true;
+        const nested = [];
+        flattenOrder(key, direction, nested);
+        rules.push(...nested);
+        nested.forEach(([path]) => relationPaths.add(path));
+      } else {
+        // Scalar fields stay in Prisma's orderBy, but are also kept in the
+        // in-memory sort so their priority is preserved when a relation sort
+        // forces the rest of the ordering to happen after the query.
+        rules.push([key, direction]);
+        scalarOrderBy.push({ [key]: direction });
       }
     }
-    return value === raw;
-  });
-}
-
-async function attachIncludes(meta, docs, include) {
-  if (!include || !docs.length) return docs;
-
-  for (const [key, spec] of Object.entries(include)) {
-    if (key === '_count') {
-      const names = Object.keys(spec?.select || {});
-      await Promise.all(
-        docs.map(async (doc) => {
-          doc._count = {};
-          for (const name of names) {
-            const relation = RELATIONS[meta]?.[name];
-            doc._count[name] = relation ? (await relation.load(doc)).length : 0;
-          }
-        })
-      );
-      continue;
-    }
-
-    const relation = RELATIONS[meta]?.[key];
-    if (!relation) continue;
-
-    await Promise.all(
-      docs.map(async (doc) => {
-        let value = await relation.load(doc);
-        if (Array.isArray(value) && spec?.where) {
-          value = value.filter((item) => matchesRelationWhere(item, spec.where));
-        }
-        if (Array.isArray(value)) {
-          doc[key] = spec?.include ? await attachIncludes(relation.model, value, spec.include) : value;
-        } else {
-          doc[key] = value && spec?.include
-            ? (await attachIncludes(relation.model, [value], spec.include))[0]
-            : value;
-        }
-      })
-    );
-  }
-  return docs;
-}
-
-function sortValue(object, path) {
-  return path.split('.').reduce((value, key) => (value === null || value === undefined ? value : value[key]), object);
-}
-
-function compareValues(a, b, direction) {
-  if (a === b) return 0;
-  if (a === null || a === undefined) return 1;
-  if (b === null || b === undefined) return -1;
-  const result = a < b ? -1 : a > b ? 1 : 0;
-  return direction === 'desc' ? -result : result;
-}
-
-function sortDocs(docs, orderBy) {
-  if (!orderBy) return docs;
-  const rules = (Array.isArray(orderBy) ? orderBy : [orderBy]).flatMap((rule) => {
-    const entries = Object.entries(rule || {});
-    if (entries.length === 1) {
-      const [key, direction] = entries[0];
-      if (isObject(direction)) {
-        return Object.entries(direction).map(([nested, dir]) => [`${key}.${nested}`, dir]);
-      }
-    }
-    return entries.map(([key, direction]) => [key, direction]);
-  });
-  if (!rules.length) return docs;
-
-  return docs.slice().sort((a, b) => {
-    for (const [path, direction] of rules) {
-      const result = compareValues(sortValue(a, path), sortValue(b, path), direction);
-      if (result !== 0) return result;
-    }
-    return 0;
-  });
-}
-
-async function findMany(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const filter = await translateWhere(meta, args.where);
-  let docs = plainMany(await models[modelKey].find(filter));
-  await attachIncludes(meta, docs, args.include);
-  docs = sortDocs(docs, args.orderBy);
-  const skip = args.skip || 0;
-  return args.take === undefined ? docs.slice(skip) : docs.slice(skip, skip + args.take);
-}
-
-async function findFirst(modelKey, args = {}) {
-  const docs = await findMany(modelKey, { ...args, take: 1 });
-  return docs[0] || null;
-}
-
-async function findUnique(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const where = flattenUnique(args.where || {});
-  const filter = await translateWhere(meta, where);
-  const doc = plain(await models[modelKey].findOne(filter));
-  if (!doc) return null;
-  await attachIncludes(meta, [doc], args.include);
-  return doc;
-}
-
-async function count(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const filter = await translateWhere(meta, args.where);
-  return models[modelKey].countDocuments(filter);
-}
-
-async function create(modelKey, args = {}) {
-  const data = mapIdField(args.data || {});
-  const nested = {};
-  for (const key of ['classes', 'subjects']) {
-    if (data[key]?.create) {
-      nested[key] = data[key].create;
-      delete data[key];
-    }
   }
 
-  const doc = plain(await models[modelKey].create(data));
-  for (const row of nested.classes || []) {
-    await models.teacherClass.create({
-      campusId: row.campusId ?? doc.campusId,
-      userId: doc.id,
-      classId: row.classId
-    });
-  }
-  for (const row of nested.subjects || []) {
-    await models.teacherSubject.create({
-      campusId: row.campusId ?? doc.campusId,
-      userId: doc.id,
-      subjectId: row.subjectId
-    });
-  }
-  await attachIncludes(modelMeta[modelKey], [doc], args.include);
-  return doc;
-}
-
-async function updateById(modelKey, id, data = {}) {
-  const record = await models[modelKey].findOne({ _id: id });
-  if (!record) return null;
-
-  for (const [key, value] of Object.entries(data)) {
-    if (['classes', 'subjects'].includes(key) && value?.deleteMany !== undefined) {
-      const model = key === 'classes' ? 'teacherClass' : 'teacherSubject';
-      const field = key === 'classes' ? 'classId' : 'subjectId';
-      await models[model].deleteMany({ userId: id });
-      for (const row of value.create || []) {
-        await models[model].create({
-          campusId: row.campusId ?? record.campusId,
-          userId: id,
-          [field]: row[field]
-        });
-      }
-      continue;
-    }
-    record.set(key, value);
-  }
-  await record.save();
-  return plain(record);
-}
-
-async function update(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const where = flattenUnique(args.where || {});
-  const filter = await translateWhere(meta, where);
-  const existing = plain(await models[modelKey].findOne(filter));
-  if (!existing) return null;
-
-  const doc = await updateById(modelKey, existing.id, mapIdField(args.data || {}));
-  await attachIncludes(meta, [doc], args.include);
-  return doc;
-}
-
-async function remove(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const where = flattenUnique(args.where || {});
-  const filter = await translateWhere(meta, where);
-  const doc = plain(await models[modelKey].findOne(filter));
-  if (!doc) return null;
-
-  const scope = doc.campusId ? { campusId: doc.campusId } : {};
-  if (modelKey === 'reportCard') {
-    await models.mark.deleteMany({ ...scope, reportCardId: doc.id });
-  }
-  if (modelKey === 'student') {
-    const cards = await findDocs('reportCard', { ...scope, studentId: doc.id });
-    const cardIds = cards.map((card) => card.id);
-    await models.mark.deleteMany({ ...scope, reportCardId: { $in: cardIds } });
-    await models.reportCard.deleteMany({ ...scope, studentId: doc.id });
-  }
-  if (modelKey === 'user') {
-    await models.teacherClass.deleteMany({ ...scope, userId: doc.id });
-    await models.teacherSubject.deleteMany({ ...scope, userId: doc.id });
-    await models.schoolClass.updateMany({ ...scope, classTeacherId: doc.id }, { $set: { classTeacherId: null } });
-    await models.reportCard.updateMany({ ...scope, submittedById: doc.id }, { $set: { submittedById: null } });
-    await models.reportCard.updateMany({ ...scope, approvedById: doc.id }, { $set: { approvedById: null } });
-    await models.mark.updateMany({ ...scope, teacherId: doc.id }, { $set: { teacherId: null } });
-  }
-  if (modelKey === 'schoolClass') {
-    await models.teacherClass.deleteMany({ ...scope, classId: doc.id });
-  }
-
-  await models[modelKey].deleteOne({ _id: doc.id });
-  return doc;
-}
-
-async function upsert(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const where = flattenUnique(args.where || {});
-  const filter = await translateWhere(meta, where);
-  const existing = plain(await models[modelKey].findOne(filter));
-  if (existing) return updateById(modelKey, existing.id, mapIdField(args.update || {}));
-  return create(modelKey, { data: args.create || {} });
-}
-
-async function createMany(modelKey, args = {}) {
-  const rows = (args.data || []).map(mapIdField);
-  if (!rows.length) return { count: 0 };
-  const result = await models[modelKey].insertMany(rows, { ordered: false });
-  return { count: result.length };
-}
-
-async function deleteMany(modelKey, args = {}) {
-  const meta = modelMeta[modelKey];
-  const filter = await translateWhere(meta, args.where);
-  const result = await models[modelKey].deleteMany(filter);
-  return { count: result.deletedCount };
-}
-
-function modelApi(modelKey) {
+  if (!hasRelation) return null;
   return {
-    findUnique: (args) => findUnique(modelKey, args),
-    findFirst: (args) => findFirst(modelKey, args),
-    findMany: (args) => findMany(modelKey, args),
-    count: (args) => count(modelKey, args),
-    create: (args) => create(modelKey, args),
-    update: (args) => update(modelKey, args),
-    delete: (args) => remove(modelKey, args),
-    upsert: (args) => upsert(modelKey, args),
-    createMany: (args) => createMany(modelKey, args),
-    deleteMany: (args) => deleteMany(modelKey, args)
+    rules,
+    prismaOrderBy: scalarOrderBy.length ? scalarOrderBy : undefined,
+    // Only relation paths need their relations loaded into the result. Scalar
+    // fields are already present; adding them to `include` makes Prisma throw.
+    paths: [...relationPaths]
   };
 }
 
-export const prisma = {
-  user: modelApi('user'),
-  teacherClass: modelApi('teacherClass'),
-  teacherSubject: modelApi('teacherSubject'),
-  schoolClass: modelApi('schoolClass'),
-  subject: modelApi('subject'),
-  student: modelApi('student'),
-  reportCard: modelApi('reportCard'),
-  mark: modelApi('mark'),
-  setting: modelApi('setting'),
-  auditLog: modelApi('auditLog'),
-  $connect: () =>
-    connectMongo(process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL),
-  $disconnect: disconnectMongo,
-  // Operations are already sequential; keep the same call signature without
-  // requiring a MongoDB replica set for multi-document transactions.
-  $transaction: async (callback) => callback(prisma)
-};
+function flattenOrder(prefix, value, out) {
+  if (isObject(value)) {
+    for (const [key, nested] of Object.entries(value)) {
+      if (nested === undefined) continue;
+      flattenOrder(`${prefix}.${key}`, nested, out);
+    }
+    return;
+  }
+  out.push([prefix, value]);
+}
+
+/** Make sure the relations used by an in-memory sort are actually loaded. */
+function ensureRelationsForSort(args, paths) {
+  const roots = [...new Set(paths.map((path) => path.split('.')[0]))];
+  if (!roots.length) return;
+
+  if (args.select) {
+    for (const root of roots) {
+      if (args.select[root]) continue;
+      const leaf = paths.find((path) => path.startsWith(`${root}.`))?.split('.')[1] || 'id';
+      args.select[root] = { select: { [leaf]: true } };
+    }
+    return;
+  }
+
+  args.include = args.include || {};
+  for (const root of roots) {
+    if (args.include[root] === undefined) args.include[root] = true;
+  }
+}
+
+function sortValue(object, path) {
+  return path.split('.').reduce((value, key) => {
+    if (value === null || value === undefined) return null;
+    if (key === '_count') {
+      if (Array.isArray(value)) return value.length;
+      if (typeof value.count === 'number') return value.count;
+      return null;
+    }
+    return value[key] ?? null;
+  }, object);
+}
+
+function comparable(value) {
+  if (value instanceof Date) return value.getTime();
+  return value;
+}
+
+function compareValues(a, b, direction) {
+  const left = comparable(a);
+  const right = comparable(b);
+  if (left == null && right == null) return 0;
+  // Nulls always sort last, regardless of direction.
+  if (left == null) return 1;
+  if (right == null) return -1;
+
+  const result = left < right ? -1 : left > right ? 1 : 0;
+  return direction === 'desc' ? -result : result;
+}
+
+function sortRows(rows, rules) {
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      for (const [path, direction] of rules) {
+        const result = compareValues(sortValue(a.row, path), sortValue(b.row, path), direction);
+        if (result !== 0) return result;
+      }
+      // Stable, deterministic tiebreaker independent of database row order.
+      return compareValues(String(a.row?.id ?? ''), String(b.row?.id ?? ''), 'asc') || a.index - b.index;
+    })
+    .map(({ row }) => row);
+}
+
+function paginate(rows, skip, take) {
+  const start = Math.max(0, Number(skip) || 0);
+  if (take === undefined || take === null) return rows.slice(start);
+  return rows.slice(start, start + Math.max(0, Number(take) || 0));
+}
+
+function makeFacade(source) {
+  const model = (modelKey) => source[modelKey];
+
+  function hasWhere(where) {
+    return isObject(where) && Object.keys(where).length > 0;
+  }
+
+  async function findManyRaw(modelKey, args = {}) {
+    const prepared = prepareArgs(args);
+    const sort = orderRules(modelKey, prepared.orderBy);
+
+    // Native Prisma path: no relation sorting, no extra work.
+    if (!sort) return model(modelKey).findMany(prepared);
+
+    const query = { ...prepared };
+    delete query.skip;
+    delete query.take;
+    if (sort.prismaOrderBy) query.orderBy = sort.prismaOrderBy;
+    else delete query.orderBy;
+    ensureRelationsForSort(query, sort.paths);
+
+    const rows = await model(modelKey).findMany(query);
+    return paginate(sortRows(rows, sort.rules), prepared.skip, prepared.take);
+  }
+
+  const api = {
+    findUnique: async (modelKey, args = {}) => {
+      const prepared = prepareArgs(args);
+      const { where } = prepared;
+      if (isDirectUnique(modelKey, where)) return model(modelKey).findUnique(prepared);
+      // Extra campus filters and legacy compound keys are not valid selectors
+      // for findUnique; findFirst honours them natively.
+      return model(modelKey).findFirst(prepared);
+    },
+
+    findFirst: async (modelKey, args = {}) => {
+      const prepared = prepareArgs(args);
+      if (!orderRules(modelKey, prepared.orderBy)) return model(modelKey).findFirst(prepared);
+      const rows = await findManyRaw(modelKey, { ...prepared, take: 1 });
+      return rows[0] || null;
+    },
+
+    findMany: (modelKey, args = {}) => findManyRaw(modelKey, args),
+
+    count: (modelKey, args = {}) => model(modelKey).count(prepareArgs(args)),
+
+    create: (modelKey, args = {}) => model(modelKey).create(prepareArgs(args)),
+
+    update: async (modelKey, args = {}) => {
+      const prepared = prepareArgs(args);
+      if (isDirectUnique(modelKey, prepared.where || {})) {
+        return model(modelKey).update(prepared);
+      }
+      if (!hasWhere(prepared.where)) throw new Error('update() requires a where clause.');
+      const found = await model(modelKey).findFirst({ where: prepared.where });
+      if (!found) return null;
+      return model(modelKey).update({ ...prepared, where: { id: found.id } });
+    },
+
+    delete: async (modelKey, args = {}) => {
+      const prepared = prepareArgs(args);
+      if (isDirectUnique(modelKey, prepared.where || {})) {
+        return model(modelKey).delete(prepared);
+      }
+      if (!hasWhere(prepared.where)) throw new Error('delete() requires a where clause.');
+      const found = await model(modelKey).findFirst({ where: prepared.where });
+      if (!found) return null;
+      return model(modelKey).delete({ ...prepared, where: { id: found.id } });
+    },
+
+    upsert: async (modelKey, args = {}) => {
+      const prepared = prepareArgs(args);
+      if (isDirectUnique(modelKey, prepared.where || {})) {
+        return model(modelKey).upsert(prepared);
+      }
+      if (!hasWhere(prepared.where)) throw new Error('upsert() requires a where clause.');
+      const found = await model(modelKey).findFirst({ where: prepared.where });
+      if (found) {
+        const { where, create, update, ...rest } = prepared;
+        return model(modelKey).update({ ...rest, where: { id: found.id }, data: update });
+      }
+      const { where, update, create, ...rest } = prepared;
+      return model(modelKey).create({ ...rest, data: create });
+    },
+
+    createMany: (modelKey, args = {}) => model(modelKey).createMany(prepareArgs(args)),
+
+    deleteMany: (modelKey, args = {}) => model(modelKey).deleteMany(prepareArgs(args))
+  };
+
+  const facade = {};
+  for (const key of MODEL_KEYS) {
+    facade[key] = {
+      findUnique: (args) => api.findUnique(key, args),
+      findFirst: (args) => api.findFirst(key, args),
+      findMany: (args) => api.findMany(key, args),
+      count: (args) => api.count(key, args),
+      create: (args) => api.create(key, args),
+      update: (args) => api.update(key, args),
+      delete: (args) => api.delete(key, args),
+      upsert: (args) => api.upsert(key, args),
+      createMany: (args) => api.createMany(key, args),
+      deleteMany: (args) => api.deleteMany(key, args)
+    };
+  }
+
+  facade.$connect = () => client.$connect();
+  facade.$disconnect = () => client.$disconnect();
+  facade.$transaction = (argument, options) => {
+    if (Array.isArray(argument)) return client.$transaction(argument, options);
+    return client.$transaction((tx) => argument(makeFacade(tx)), options);
+  };
+
+  return facade;
+}
+
+export const prisma = makeFacade(client);
+
+export default client;

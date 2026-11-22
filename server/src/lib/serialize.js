@@ -7,8 +7,10 @@ export function publicUser(user) {
     email: user.email,
     phone: user.phone,
     role: user.role,
+    isGlobal: user.isGlobal === true,
     isActive: user.isActive,
     canDelete: user.canDelete,
+    classTeacherClassId: user.classTeacherClassId ?? null,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     classes: (user.classes || []).map((entry) => ({

@@ -35,15 +35,15 @@ const NAV_SECTIONS = [
         to: '/classes',
         label: 'Classes',
         icon: 'bi-diagram-3-fill',
-        roles: ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER']
+        roles: ['SUPER_ADMIN', 'DOS']
       }
     ]
   },
   {
     label: 'Administration',
     items: [
-      { to: '/users', label: 'Users', icon: 'bi-person-gear', roles: ['SUPER_ADMIN'] },
-      { to: '/subjects', label: 'Subjects', icon: 'bi-book-fill', roles: ['SUPER_ADMIN'] },
+      { to: '/users', label: 'Users', icon: 'bi-person-gear', roles: ['SUPER_ADMIN', 'DOS'] },
+      { to: '/subjects', label: 'Subjects', icon: 'bi-book-fill', roles: ['SUPER_ADMIN', 'DOS'] },
       { to: '/audit', label: 'Audit Trail', icon: 'bi-shield-lock-fill', roles: ['SUPER_ADMIN'] },
       {
         to: '/settings',

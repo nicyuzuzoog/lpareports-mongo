@@ -1,14 +1,6 @@
 const rawBase = import.meta.env.VITE_API_URL || '/api';
 export const API_BASE = rawBase.replace(/\/$/, '');
 const TOKEN_KEY = 'lpareports_token';
-const LEGACY_TOKEN_KEY = 'lpacamis_token';
-
-// Drop sessions created by the old Lpacamis build so they log out cleanly.
-try {
-  if (localStorage.getItem(LEGACY_TOKEN_KEY)) localStorage.removeItem(LEGACY_TOKEN_KEY);
-} catch {
-  // localStorage may be unavailable (e.g. privacy mode); the new key is simply used.
-}
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token) => {
@@ -62,6 +54,41 @@ export const api = {
   put: (path, body) => request(path, { method: 'PUT', body }),
   delete: (path) => request(path, { method: 'DELETE' })
 };
+
+// The global endpoint is preferred; the scoped alias is kept as a fallback for
+// deployments that only expose system settings under /api/settings.
+const SYSTEM_SETTINGS_PATH = '/system-settings';
+const SYSTEM_SETTINGS_ALIAS = '/settings/system-settings';
+
+async function systemSettingsRequest(method, body) {
+  let lastError;
+  for (const path of [SYSTEM_SETTINGS_PATH, SYSTEM_SETTINGS_ALIAS]) {
+    try {
+      return method === 'GET' ? await api.get(path) : await api.patch(path, body);
+    } catch (error) {
+      lastError = error;
+      if (![403, 404].includes(error?.status)) throw error;
+    }
+  }
+  throw lastError;
+}
+
+export async function getSystemSettings() {
+  try {
+    return await systemSettingsRequest('GET');
+  } catch (error) {
+    // Older deployments may surface the flag alongside campus settings.
+    const data = await api.get('/settings').catch(() => null);
+    const enabled =
+      data?.systemSettings?.studentRegistrationEnabled ??
+      data?.settings?.studentRegistrationEnabled;
+    if (typeof enabled === 'boolean') return { systemSettings: { studentRegistrationEnabled: enabled } };
+    throw error;
+  }
+}
+
+export const patchSystemSettings = (studentRegistrationEnabled) =>
+  systemSettingsRequest('PATCH', { studentRegistrationEnabled });
 
 function filenameFromHeaders(response, fallback) {
   const disposition = response.headers.get('content-disposition') || '';

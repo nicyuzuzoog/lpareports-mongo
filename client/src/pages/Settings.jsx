@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client.js';
+import { api, getSystemSettings, patchSystemSettings } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import PageHeader from '../components/PageHeader.jsx';
@@ -8,10 +8,11 @@ import { LEVELS } from '../utils/constants.js';
 import { levelLabel } from '../utils/format.js';
 
 const TABS = [
-  { key: 'school', label: 'School profile', icon: 'bi-building', adminOnly: true },
-  { key: 'grading', label: 'Grading scales', icon: 'bi-list-ol', adminOnly: true },
-  { key: 'weights', label: 'Assessment weights', icon: 'bi-calculator', adminOnly: true },
-  { key: 'criteria', label: 'Analysis criteria', icon: 'bi-sliders', adminOnly: false }
+  { key: 'school', label: 'School profile', icon: 'bi-building', roles: ['SUPER_ADMIN'] },
+  { key: 'grading', label: 'Grading scales', icon: 'bi-list-ol', roles: ['SUPER_ADMIN', 'DOS'] },
+  { key: 'weights', label: 'Assessment weights', icon: 'bi-calculator', roles: ['SUPER_ADMIN'] },
+  { key: 'system', label: 'System controls', icon: 'bi-shield-check', roles: ['SUPER_ADMIN'] },
+  { key: 'criteria', label: 'Analysis criteria', icon: 'bi-sliders' }
 ];
 
 const EMPTY_BAND = { min: 0, max: 0, grade: '', remark: '' };
@@ -27,11 +28,15 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [savingCriteria, setSavingCriteria] = useState(false);
   const [error, setError] = useState(null);
+  const [systemSettings, setSystemSettings] = useState(null);
+  const [systemError, setSystemError] = useState(null);
+  const [registrationBusy, setRegistrationBusy] = useState(false);
 
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const canEditGrading = ['SUPER_ADMIN', 'DOS'].includes(user.role);
   const availableTabs = useMemo(
-    () => TABS.filter((item) => !item.adminOnly || isSuperAdmin),
-    [isSuperAdmin]
+    () => TABS.filter((item) => !item.roles || item.roles.includes(user.role)),
+    [user.role]
   );
 
   useEffect(() => {
@@ -46,10 +51,25 @@ export default function Settings() {
           lowPerformanceThreshold: data.settings.lowPerformanceThreshold,
           lowPerformanceMinSubjects: data.settings.lowPerformanceMinSubjects
         });
-        setTab(isSuperAdmin ? 'school' : 'criteria');
+        setTab(isSuperAdmin ? 'school' : user.role === 'DOS' ? 'grading' : 'criteria');
       })
       .catch(setError)
       .finally(() => setLoading(false));
+  }, [isSuperAdmin, user.role]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return undefined;
+    let active = true;
+    getSystemSettings()
+      .then((data) => {
+        if (active) setSystemSettings(data.systemSettings || {});
+      })
+      .catch((err) => {
+        if (active) setSystemError(err);
+      });
+    return () => {
+      active = false;
+    };
   }, [isSuperAdmin]);
 
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
@@ -93,6 +113,44 @@ export default function Settings() {
       toast(err.message, 'danger');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveGrading = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const data = await api.put('/settings', { gradingScales: form.gradingScales });
+      setSettings(data.settings);
+      setForm(data.settings);
+      setCriteria({
+        passMark: data.settings.passMark,
+        lowPerformanceThreshold: data.settings.lowPerformanceThreshold,
+        lowPerformanceMinSubjects: data.settings.lowPerformanceMinSubjects
+      });
+      toast('Grading scales saved.');
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleRegistration = async () => {
+    const previous = Boolean(systemSettings?.studentRegistrationEnabled);
+    const next = !previous;
+    setSystemSettings((prev) => ({ ...(prev || {}), studentRegistrationEnabled: next }));
+    setRegistrationBusy(true);
+    try {
+      const data = await patchSystemSettings(next);
+      setSystemSettings(data.systemSettings || { studentRegistrationEnabled: next });
+      setSystemError(null);
+      toast('Student registration setting updated.');
+    } catch (err) {
+      setSystemSettings((prev) => ({ ...(prev || {}), studentRegistrationEnabled: previous }));
+      toast(err.message, 'danger');
+    } finally {
+      setRegistrationBusy(false);
     }
   };
 
@@ -182,7 +240,11 @@ export default function Settings() {
     <>
       <PageHeader
         title="Settings"
-        subtitle="School identity, grading scales, assessment weights and performance criteria."
+        subtitle={
+          user.role === 'DOS'
+            ? 'Grading scales and performance criteria for your campus.'
+            : 'School identity, grading scales, assessment weights, registration and performance criteria.'
+        }
       >
         {isSuperAdmin ? (
           <span className="badge badge-soft-danger">
@@ -190,7 +252,8 @@ export default function Settings() {
           </span>
         ) : (
           <span className="badge badge-soft-info">
-            <i className="bi bi-sliders me-1" /> Analysis criteria
+            <i className="bi bi-sliders me-1" />
+            {user.role === 'DOS' ? 'Grading & analysis' : 'Analysis criteria'}
           </span>
         )}
       </PageHeader>
@@ -289,8 +352,8 @@ export default function Settings() {
               <div className="col-12">
                 <div className="alert alert-info mb-0">
                   <i className="bi bi-info-circle me-1" />
-                  These names are printed at the bottom of every report card, together with the class
-                  teacher recorded on the marks.
+                  The Head Teacher's name is printed on report cards. The Class Teacher line uses the
+                  teacher assigned to the student's class.
                 </div>
               </div>
             </div>
@@ -305,8 +368,8 @@ export default function Settings() {
         </form>
       ) : null}
 
-      {tab === 'grading' && isSuperAdmin ? (
-        <form onSubmit={saveSettings}>
+      {tab === 'grading' && canEditGrading ? (
+        <form onSubmit={saveGrading}>
           <div className="alert alert-info">
             <i className="bi bi-info-circle me-1" />
             Rwandan primary bands apply to every section: A 70–100 (6 pts, Excellent), B 65–69
@@ -500,6 +563,41 @@ export default function Settings() {
             </button>
           </div>
         </form>
+      ) : null}
+
+      {tab === 'system' && isSuperAdmin ? (
+        <div className="card-soft mb-4">
+          <div className="card-header">
+            <span>
+              <i className="bi bi-shield-check me-2 text-muted-2" /> Global controls
+            </span>
+          </div>
+          <div className="card-body">
+            {systemError ? <ErrorAlert error={systemError} /> : null}
+            {systemSettings === null ? (
+              <Loading label="Loading system controls…" />
+            ) : (
+              <div className="form-check form-switch">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  role="switch"
+                  id="student-registration-enabled"
+                  checked={Boolean(systemSettings.studentRegistrationEnabled)}
+                  onChange={toggleRegistration}
+                  disabled={registrationBusy}
+                />
+                <label className="form-check-label fw-650" htmlFor="student-registration-enabled">
+                  Student registration enabled
+                </label>
+                <div className="text-muted-2 mt-2" style={{ fontSize: '0.78rem' }}>
+                  When switched off, no user can register new students. The setting applies to both
+                  campuses; the API also enforces it.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       ) : null}
 
       {tab === 'criteria' && criteria ? (

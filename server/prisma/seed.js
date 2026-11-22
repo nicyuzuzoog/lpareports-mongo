@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/lib/prisma.js';
-import { models } from '../src/models/index.js';
 import {
   CAMPUSES,
   defaultSettingsFor,
@@ -10,10 +9,11 @@ import {
   assessmentCompetency
 } from '../src/lib/grading.js';
 
-if (!process.env.MONGODB_URI && !process.env.MONGO_URI && !process.env.DATABASE_URL) {
-  console.error('Set MONGODB_URI (or MONGO_URI) to your MongoDB Atlas connection string before seeding.');
+if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('mysql://')) {
+  console.error('Set DATABASE_URL to your MySQL connection string (mysql://...) before seeding.');
   process.exit(1);
 }
+
 await prisma.$connect();
 
 const CLASSES = [
@@ -73,49 +73,13 @@ const LAST_NAMES = [
 const STUDENT_NAMES = FIRST_NAMES.map((first, index) => [first, LAST_NAMES[index % LAST_NAMES.length]]);
 const DEMO_CLASSES = ['Top Class', 'P.1', 'P.4', 'P.7'];
 
-const STAFF_LOCALS = [
-  'superadmin', 'dos', 'head', 'teacher', 'teacher2', 'teacher3', 'teacher4'
-];
+const SUPER_ADMIN_ID = 'user-GLOBAL-superadmin';
 
-const STAFF_ROLES = {
-  superadmin: 'SUPER_ADMIN',
-  dos: 'DOS',
-  head: 'HEAD_TEACHER',
-  teacher: 'TEACHER',
-  teacher2: 'TEACHER',
-  teacher3: 'TEACHER',
-  teacher4: 'TEACHER'
-};
-
-const STAFF_PASSWORDS = {
-  superadmin: 'Admin@1234',
-  dos: 'Dos@12345',
-  head: 'Head@12345',
-  teacher: 'Teacher@123',
-  teacher2: 'Teacher@123',
-  teacher3: 'Teacher@123',
-  teacher4: 'Teacher@123'
-};
-
-const STAFF_NAMES = {
-  MAIN: {
-    superadmin: 'Super Admin',
-    dos: 'Ms. Mukamana Grace',
-    head: 'Mr. Nkurunziza Emmanuel',
-    teacher: 'Ms. Umuhoza Alice',
-    teacher2: 'Mr. Nsengiyumva Jean',
-    teacher3: 'Ms. Mutesi Claudine',
-    teacher4: 'Mr. Irakoze Olivier'
-  },
-  RULINDO: {
-    superadmin: 'Super Admin',
-    dos: 'Ms. Uwimana Claudine',
-    head: 'Mr. Habimana Jean',
-    teacher: 'Ms. Niyonsaba Diane',
-    teacher2: 'Mr. Ndayisaba Eric',
-    teacher3: 'Ms. Mukamana Esperance',
-    teacher4: 'Mr. Nkurunziza Samuel'
-  }
+/** Exactly one teacher is the class teacher of each of these classes. */
+const CLASS_TEACHERS = {
+  'P.4': 'teacher',
+  'P.1': 'teacher2',
+  'Baby Class': 'teacher3'
 };
 
 const TEACHER_ASSIGNMENTS = {
@@ -125,39 +89,60 @@ const TEACHER_ASSIGNMENTS = {
   teacher4: { classNames: ['P.3', 'P.7'], subjectCodes: ['SCI', 'SST', 'RE'] }
 };
 
-const CLASS_TEACHERS = {
-  'Baby Class': 'teacher3',
-  'Middle Class': 'teacher3',
-  'Top Class': 'teacher3',
-  'P.1': 'teacher',
-  'P.2': 'teacher2',
-  'P.3': 'teacher4',
-  'P.4': 'teacher',
-  'P.5': 'teacher2',
-  'P.6': 'teacher4',
-  'P.7': 'teacher4'
-};
-
-const BULK_COLLECTIONS = [
-  'setting',
-  'schoolClass',
-  'subject',
-  'user',
-  'student',
-  'teacherClass',
-  'teacherSubject',
-  'reportCard',
-  'mark',
-  'auditLog'
+const STAFF = [
+  {
+    local: 'dos',
+    role: 'DOS',
+    passwordKey: 'DOS',
+    names: { MAIN: 'Ms. Mukamana Grace', RULINDO: 'Ms. Uwimana Claudine' }
+  },
+  {
+    local: 'head',
+    role: 'HEAD_TEACHER',
+    passwordKey: 'HEAD',
+    names: { MAIN: 'Mr. Nkurunziza Emmanuel', RULINDO: 'Mr. Habimana Jean' }
+  },
+  {
+    local: 'teacher',
+    role: 'TEACHER',
+    passwordKey: 'TEACHER',
+    names: { MAIN: 'Ms. Umuhoza Alice', RULINDO: 'Ms. Niyonsaba Diane' }
+  },
+  {
+    local: 'teacher2',
+    role: 'TEACHER',
+    passwordKey: 'TEACHER',
+    names: { MAIN: 'Mr. Nsengiyumva Jean', RULINDO: 'Mr. Ndayisaba Eric' }
+  },
+  {
+    local: 'teacher3',
+    role: 'TEACHER',
+    passwordKey: 'TEACHER',
+    names: { MAIN: 'Ms. Mutesi Claudine', RULINDO: 'Ms. Mukamana Esperance' }
+  },
+  {
+    local: 'teacher4',
+    role: 'TEACHER',
+    passwordKey: 'TEACHER',
+    names: { MAIN: 'Mr. Irakoze Olivier', RULINDO: 'Mr. Nkurunziza Samuel' }
+  }
 ];
 
-const hashPassword = (value) => bcrypt.hash(value, 10);
+const PASSWORDS = {
+  SUPER: 'Admin@1234',
+  DOS: 'Dos@12345',
+  HEAD: 'Head@12345',
+  TEACHER: 'Teacher@123'
+};
 
-function emailFor(localPart, campusId) {
-  return campusId === 'MAIN'
-    ? `${localPart}@lpareports.rw`
-    : `${localPart}.rulindo@lpareports.rw`;
-}
+const STAFF_LABELS = {
+  dos: 'DOS',
+  head: 'Head Teacher',
+  teacher: 'Teacher 1',
+  teacher2: 'Teacher 2',
+  teacher3: 'Teacher 3',
+  teacher4: 'Teacher 4'
+};
 
 function slug(value) {
   return String(value)
@@ -166,93 +151,161 @@ function slug(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-/** One idempotent bulk operation: a deterministic _id is the upsert key. */
-function upsertOperation(id, doc) {
-  return {
-    updateOne: {
-      filter: { _id: id },
-      update: { $set: doc },
-      upsert: true
-    }
-  };
+function userId(campusId, local) {
+  return `user-${campusId}-${local}`;
 }
 
-/** Build every document for one campus in memory; no database reads/writes here. */
-function buildCampusDocs(campus, passwordHashes, bucket) {
-  const settings = defaultSettingsFor(campus.id);
-  const isMain = campus.id === 'MAIN';
-  const phoneBase = isMain ? 100 : 200;
-  const nameOffset = isMain ? 0 : 27;
-  const push = (collection, id, doc) => {
-    bucket[collection].push(upsertOperation(id, doc));
-  };
-  const userId = (local) => `user-${campus.id}-${local}`;
+function emailFor(localPart, campusId) {
+  return campusId === 'MAIN'
+    ? `${localPart}@lpareports.rw`
+    : `${localPart}.rulindo@lpareports.rw`;
+}
 
-  console.log(`Seeding ${campus.name} (${campus.id}) — ${campus.location}`);
+function fullName(student) {
+  return [student.firstName, student.otherNames, student.lastName].filter(Boolean).join(' ');
+}
 
-  // Setting is keyed by its _id (the campus id); the schema has no campusId.
-  push('setting', campus.id, { ...settings });
+function statusFor(term, studentIndex, className) {
+  if (term !== 'TERM3') return 'APPROVED';
+  if (className === 'Top Class' && studentIndex === 0) return 'DRAFT';
+  if (className === 'Top Class' && studentIndex === 1) return 'SUBMITTED';
+  return 'APPROVED';
+}
+
+async function seedGlobalRows(passwordHashes) {
+  await prisma.user.upsert({
+    where: { id: SUPER_ADMIN_ID },
+    create: {
+      id: SUPER_ADMIN_ID,
+      campusId: 'MAIN',
+      name: 'Super Admin',
+      email: 'superadmin@lpareports.rw',
+      phone: '+250 788 300 000',
+      passwordHash: passwordHashes.SUPER,
+      role: 'SUPER_ADMIN',
+      isActive: true,
+      canDelete: false,
+      isGlobal: true
+    },
+    update: {
+      campusId: 'MAIN',
+      name: 'Super Admin',
+      email: 'superadmin@lpareports.rw',
+      passwordHash: passwordHashes.SUPER,
+      role: 'SUPER_ADMIN',
+      isActive: true,
+      canDelete: false,
+      isGlobal: true
+    }
+  });
+
+  await prisma.systemSetting.upsert({
+    where: { id: 'GLOBAL' },
+    create: { id: 'GLOBAL', studentRegistrationEnabled: true },
+    update: { studentRegistrationEnabled: true }
+  });
+}
+
+async function seedCampus(campus, passwordHashes) {
+  const campusId = campus.id;
+  const settings = defaultSettingsFor(campusId);
+  console.log(`Seeding ${campus.name} (${campusId}) — ${campus.location}`);
+
+  await prisma.setting.upsert({
+    where: { id: campusId },
+    create: { id: campusId, ...settings },
+    update: { ...settings }
+  });
 
   const classes = {};
   for (const item of CLASSES) {
-    const classId = `class-${campus.id}-${slug(item.name)}`;
-    classes[item.name] = { id: classId, level: item.level };
-    push('schoolClass', classId, {
-      campusId: campus.id,
+    const id = `class-${campusId}-${slug(item.name)}`;
+    const classTeacherId = CLASS_TEACHERS[item.name]
+      ? userId(campusId, CLASS_TEACHERS[item.name])
+      : null;
+    const data = {
+      campusId,
       name: item.name,
       level: item.level,
-      classTeacherId: userId(CLASS_TEACHERS[item.name])
+      classTeacherId
+    };
+    await prisma.schoolClass.upsert({
+      where: { id },
+      create: { id, ...data },
+      update: data
     });
+    classes[item.name] = { id, ...data };
   }
 
   const subjects = {};
   for (const item of SUBJECTS) {
-    const subjectId = `subject-${campus.id}-${item.code}`;
-    subjects[item.code] = subjectId;
-    push('subject', subjectId, {
-      campusId: campus.id,
+    const id = `subject-${campusId}-${item.code}`;
+    const data = {
+      campusId,
       name: item.name,
       code: item.code,
       levels: item.levels,
       position: item.position,
       isActive: true
+    };
+    await prisma.subject.upsert({
+      where: { id },
+      create: { id, ...data },
+      update: data
     });
+    subjects[item.code] = { id, ...data };
   }
 
-  for (const [index, local] of STAFF_LOCALS.entries()) {
-    const userIdValue = userId(local);
-    push('user', userIdValue, {
-      campusId: campus.id,
-      name: STAFF_NAMES[campus.id][local],
-      email: emailFor(local, campus.id),
-      phone: `+250 788 300 ${phoneBase + index}`,
-      passwordHash: passwordHashes[`${campus.id}:${local}`],
-      role: STAFF_ROLES[local],
+  // Staff accounts (the single global Super Admin is seeded separately).
+  for (const member of STAFF) {
+    const id = userId(campusId, member.local);
+    const className = Object.keys(CLASS_TEACHERS).find(
+      (name) => CLASS_TEACHERS[name] === member.local
+    );
+    const data = {
+      campusId,
+      name: member.names[campusId] || member.names.MAIN,
+      email: emailFor(member.local, campusId),
+      phone: `+250 788 300 ${member.local === 'dos' ? 100 : 200}`,
+      passwordHash: passwordHashes[member.passwordKey],
+      role: member.role,
       isActive: true,
-      canDelete: local === 'superadmin'
+      canDelete: false,
+      isGlobal: false,
+      classTeacherClassId: className ? classes[className].id : null
+    };
+    await prisma.user.upsert({
+      where: { id },
+      create: { id, ...data },
+      update: data
     });
 
-    const assignment = TEACHER_ASSIGNMENTS[local];
-    for (const name of assignment?.classNames || []) {
+    for (const name of TEACHER_ASSIGNMENTS[member.local]?.classNames || []) {
       const classId = classes[name].id;
-      push('teacherClass', `tc-${userIdValue}-${classId}`, {
-        campusId: campus.id,
-        userId: userIdValue,
-        classId
+      const rowId = `tc-${id}-${classId}`;
+      const row = { campusId, userId: id, classId };
+      await prisma.teacherClass.upsert({
+        where: { id: rowId },
+        create: { id: rowId, ...row },
+        update: row
       });
     }
-    for (const code of assignment?.subjectCodes || []) {
-      const subjectId = subjects[code];
-      push('teacherSubject', `ts-${userIdValue}-${subjectId}`, {
-        campusId: campus.id,
-        userId: userIdValue,
-        subjectId
+    for (const code of TEACHER_ASSIGNMENTS[member.local]?.subjectCodes || []) {
+      const subjectId = subjects[code].id;
+      const rowId = `ts-${id}-${subjectId}`;
+      const row = { campusId, userId: id, subjectId };
+      await prisma.teacherSubject.upsert({
+        where: { id: rowId },
+        create: { id: rowId, ...row },
+        update: row
       });
     }
   }
 
-  let studentSequence = 0;
+  // 50 students: five per class.
   const studentsByClass = {};
+  let studentSequence = 0;
+  const nameOffset = campusId === 'MAIN' ? 0 : 27;
   for (const item of CLASSES) {
     const schoolClass = classes[item.name];
     studentsByClass[item.name] = [];
@@ -262,155 +315,223 @@ function buildCampusDocs(campus, passwordHashes, bucket) {
       const [firstName, lastName] =
         STUDENT_NAMES[(studentSequence - 1 + nameOffset) % STUDENT_NAMES.length];
       const code = `LPA-${campus.short}-2026-${String(studentSequence).padStart(3, '0')}`;
-      const studentId = `student-${campus.id}-${code}`;
-
-      push('student', studentId, {
-        campusId: campus.id,
+      const id = `student-${campusId}-${code}`;
+      const data = {
+        campusId,
         code,
         firstName,
         lastName,
+        otherNames: null,
         gender: studentSequence % 2 === 0 ? 'FEMALE' : 'MALE',
-        dateOfBirth: new Date(2012 + (studentSequence % 6), (studentSequence % 12), 12),
+        dateOfBirth: new Date(Date.UTC(2012 + (studentSequence % 6), studentSequence % 12, 12)),
         guardianName: `${lastName} Family`,
         guardianPhone: `+250 78${String(2000000 + studentSequence).slice(-7)}`,
         address: campus.location,
+        isActive: true,
         classId: schoolClass.id,
-        createdById: userId('superadmin'),
-        isActive: true
+        createdById: SUPER_ADMIN_ID
+      };
+      await prisma.student.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data
       });
-
-      studentsByClass[item.name].push({ id: studentId, code });
+      studentsByClass[item.name].push({ id, code, ...data });
     }
   }
 
   const now = new Date();
-  const termStatus = { TERM1: 'APPROVED', TERM2: 'APPROVED' };
+  const cardIds = [];
+  const marks = [];
 
   for (const className of DEMO_CLASSES) {
     const schoolClass = classes[className];
-    const classSubjects = SUBJECTS.filter((item) => item.levels.includes(schoolClass.level))
-      .sort((a, b) => a.position - b.position);
+    const level = schoolClass.level;
+    const classSubjects = SUBJECTS.filter((item) => item.levels.includes(level)).sort(
+      (a, b) => a.position - b.position
+    );
+    const teacherId = schoolClass.classTeacherId || userId(campusId, 'teacher');
     const students = studentsByClass[className];
-    const teacherId = userId(CLASS_TEACHERS[className]);
 
-    for (const [termIndex, term] of ['TERM1', 'TERM2', 'TERM3'].entries()) {
-      for (const [studentIndex, student] of students.entries()) {
-        const status =
-          term === 'TERM3'
-            ? className === 'P.7'
-              ? 'APPROVED'
-              : ['DRAFT', 'SUBMITTED', 'APPROVED'][studentIndex % 3]
-            : termStatus[term];
+    for (const [studentIndex, student] of students.entries()) {
+      const studentName = fullName(student);
+      const baseAbility = 38 + ((studentIndex * 13 + className.length * 7 + nameOffset) % 48);
 
-        const cardId = `card-${campus.id}-${student.code}-${term}-2026`;
-        push('reportCard', cardId, {
-          campusId: campus.id,
+      for (const [termIndex, term] of ['TERM1', 'TERM2', 'TERM3'].entries()) {
+        const status = statusFor(term, studentIndex, className);
+
+        // Term report: coursework + exam, with an optional mid-term score.
+        const cardId = `card-${campusId}-${student.code}-${term}-TERM-2026`;
+        const cardData = {
+          campusId,
           studentId: student.id,
           classId: schoolClass.id,
           term,
+          type: 'TERM',
           year: 2026,
+          studentName,
           status,
-          teacherComment:
-            status === 'APPROVED'
-              ? 'A steady term. Keep working on the weaker subjects during the holiday.'
-              : null,
-          dosComment:
-            status === 'APPROVED'
-              ? 'Report verified against the class assessment records.'
-              : null,
-          headComment:
-            status === 'APPROVED'
-              ? 'Approved for issue to the parent or guardian.'
-              : null,
-          createdById: teacherId,
           submittedById: status === 'DRAFT' ? null : teacherId,
           submittedAt: status === 'DRAFT' ? null : now,
-          approvedById: status === 'APPROVED' ? userId('dos') : null,
-          approvedAt: status === 'APPROVED' ? now : null
+          approvedById: status === 'APPROVED' ? userId(campusId, 'dos') : null,
+          approvedAt: status === 'APPROVED' ? now : null,
+          createdById: teacherId
+        };
+        await prisma.reportCard.upsert({
+          where: { id: cardId },
+          create: { id: cardId, ...cardData },
+          update: cardData
         });
-
-        const baseAbility = 38 + ((studentIndex * 13 + className.length * 7 + nameOffset) % 48);
+        cardIds.push(cardId);
 
         for (const [subjectIndex, subject] of classSubjects.entries()) {
           const variation = ((subjectIndex * 17 + termIndex * 11) % 21) - 10;
           const rawScore = Math.min(98, Math.max(16, baseAbility + variation + ((studentIndex * 3) % 7) - 3));
           const caScore = Math.min(100, Math.max(0, rawScore + ((subjectIndex + studentIndex) % 7) - 3));
           const examScore = Math.min(100, Math.max(0, rawScore + ((subjectIndex * 2 + studentIndex) % 9) - 4));
+          const midtermScore = Math.min(100, Math.max(0, rawScore + ((subjectIndex + termIndex) % 5) - 2));
           const total = computeTotal(caScore, examScore, settings);
-          const gradeInfo = gradeFor(total, schoolClass.level, settings);
+          const gradeInfo = gradeFor(total, level, settings);
 
-          push('mark', `mark-${cardId}-${subject.code}`, {
-            campusId: campus.id,
+          marks.push({
+            id: `mark-${cardId}-${subject.code}`,
+            campusId,
             reportCardId: cardId,
-            subjectId: subjects[subject.code],
+            subjectId: subjects[subject.code].id,
             caScore,
+            midtermScore,
             examScore,
             total,
             grade: gradeInfo.grade,
             remark: gradeInfo.remark,
-            competency: assessmentCompetency(schoolClass.level, total, null),
+            competency: assessmentCompetency(level, total, null),
+            teacherId
+          });
+        }
+
+        // Mid-term report: only the mid-term score is recorded.
+        const midCardId = `card-${campusId}-${student.code}-${term}-MIDTERM-2026`;
+        const midCardData = { ...cardData, type: 'MIDTERM', status: 'APPROVED' };
+        await prisma.reportCard.upsert({
+          where: { id: midCardId },
+          create: { id: midCardId, ...midCardData },
+          update: midCardData
+        });
+        cardIds.push(midCardId);
+
+        for (const subject of classSubjects) {
+          marks.push({
+            id: `mark-${midCardId}-${subject.code}`,
+            campusId,
+            reportCardId: midCardId,
+            subjectId: subjects[subject.code].id,
+            caScore: null,
+            midtermScore: Math.min(
+              100,
+              Math.max(0, baseAbility + ((subject.position + termIndex) % 11) - 5)
+            ),
+            examScore: null,
+            total: null,
+            grade: null,
+            remark: null,
+            competency: null,
             teacherId
           });
         }
       }
+
+      // A few annual reports. These are derived from the three TERM cards.
+      if (studentIndex < 2 && ['P.7', 'Top Class'].includes(className)) {
+        const cardId = `card-${campusId}-${student.code}-ANNUAL-2026`;
+        const cardData = {
+          campusId,
+          studentId: student.id,
+          classId: schoolClass.id,
+          term: 'ANNUAL',
+          type: 'ANNUAL',
+          year: 2026,
+          studentName,
+          status: 'APPROVED',
+          submittedById: teacherId,
+          submittedAt: now,
+          approvedById: userId(campusId, 'dos'),
+          approvedAt: now,
+          createdById: teacherId
+        };
+        await prisma.reportCard.upsert({
+          where: { id: cardId },
+          create: { id: cardId, ...cardData },
+          update: cardData
+        });
+        cardIds.push(cardId);
+      }
     }
   }
 
-  push('auditLog', `audit-seed-${campus.id}`, {
-    campusId: campus.id,
-    userId: userId('superadmin'),
-    userName: 'Super Admin',
-    userRole: 'SUPER_ADMIN',
-    action: 'SEED',
-    entity: 'System',
-    description: `Seeded ${campus.name} classes, subjects, staff, students and report cards.`,
-    ip: '127.0.0.1'
+  // Deterministic mark ids: replace the marks of seeded cards, then re-create.
+  if (cardIds.length) {
+    await prisma.mark.deleteMany({ where: { campusId, reportCardId: { in: cardIds } } });
+  }
+  if (marks.length) {
+    await prisma.mark.createMany({ data: marks, skipDuplicates: true });
+  }
+
+  await prisma.auditLog.upsert({
+    where: { id: `audit-seed-${campusId}` },
+    create: {
+      id: `audit-seed-${campusId}`,
+      campusId,
+      userId: SUPER_ADMIN_ID,
+      userName: 'Super Admin',
+      userRole: 'SUPER_ADMIN',
+      action: 'SEED',
+      entity: 'System',
+      description: `Seeded ${campus.name} classes, subjects, staff, students and report cards.`,
+      ip: '127.0.0.1'
+    },
+    update: {
+      campusId,
+      userId: SUPER_ADMIN_ID,
+      userName: 'Super Admin',
+      userRole: 'SUPER_ADMIN',
+      action: 'SEED',
+      entity: 'System',
+      description: `Seeded ${campus.name} classes, subjects, staff, students and report cards.`,
+      ip: '127.0.0.1'
+    }
   });
 }
 
 async function main() {
   console.log('Seeding LPAREPORTS...');
 
-  const campusList = Object.values(CAMPUSES);
-
-  // Hash all 14 staff passwords exactly once, before any documents are built.
+  // Hash each distinct password exactly once.
   const passwordHashes = {};
   await Promise.all(
-    campusList.flatMap((campus) =>
-      STAFF_LOCALS.map(async (local) => {
-        passwordHashes[`${campus.id}:${local}`] = await hashPassword(STAFF_PASSWORDS[local]);
-      })
-    )
+    Object.entries(PASSWORDS).map(async ([key, value]) => {
+      passwordHashes[key] = await bcrypt.hash(value, 10);
+    })
   );
 
-  const bucket = Object.fromEntries(BULK_COLLECTIONS.map((key) => [key, []]));
-  for (const campus of campusList) {
-    buildCampusDocs(campus, passwordHashes, bucket);
-  }
-
-  for (const collection of BULK_COLLECTIONS) {
-    if (bucket[collection].length) {
-      await models[collection].bulkWrite(bucket[collection], { ordered: false });
-    }
+  await seedGlobalRows(passwordHashes);
+  for (const campus of Object.values(CAMPUSES)) {
+    await seedCampus(campus, passwordHashes);
   }
 
   console.log('\nSeed complete.');
-  for (const campus of campusList) {
-    const localSuffix = campus.id === 'MAIN' ? '' : '.rulindo';
+  console.log('\nGlobal Super Admin (works for BOTH campuses):');
+  console.log(`  Super Admin: ${emailFor('superadmin', 'MAIN')} / ${PASSWORDS.SUPER}`);
+
+  for (const campus of Object.values(CAMPUSES)) {
     console.log(`\n${campus.name} (${campus.id}) — ${campus.location}`);
-    for (const local of STAFF_LOCALS) {
-      const label = {
-        superadmin: 'Super Admin ',
-        dos: 'DOS         ',
-        head: 'Head Teacher',
-        teacher: 'Teacher     ',
-        teacher2: 'Teacher 2   ',
-        teacher3: 'Teacher 3   ',
-        teacher4: 'Teacher 4   '
-      }[local];
-      console.log(`  ${label}: ${emailFor(local, campus.id)} / ${STAFF_PASSWORDS[local]}`);
+    for (const member of STAFF) {
+      console.log(
+        `  ${STAFF_LABELS[member.local].padEnd(12)}: ${emailFor(member.local, campus.id)} / ${PASSWORDS[member.passwordKey]}`
+      );
     }
   }
+
+  console.log('\nReminder: `npm run db:setup` creates the MySQL tables before seeding.');
 }
 
 main()

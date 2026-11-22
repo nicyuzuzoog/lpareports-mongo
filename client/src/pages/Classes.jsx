@@ -314,7 +314,7 @@ export default function Classes() {
               ))}
             </select>
             <div className="text-muted-2 mt-1" style={{ fontSize: '0.72rem' }}>
-              The class teacher's name and comment appear on report cards.
+              The class teacher is shown on the report card signature line.
             </div>
           </div>
         </form>

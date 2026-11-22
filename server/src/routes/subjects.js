@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -25,21 +26,27 @@ router.get(
   asyncHandler(async (req, res) => {
     const { level, active } = req.query;
     const where = { campusId: req.user.campusId };
-    if (level) where.levels = { has: level };
     if (active === 'true') where.isActive = true;
 
+    // Subject.levels is a JSON array in MySQL; filter in JS rather than using
+    // Prisma's unsupported `has` operator on Json fields.
     const subjects = await prisma.subject.findMany({
       where,
       orderBy: [{ position: 'asc' }, { name: 'asc' }]
     });
+    const filtered = level
+      ? subjects.filter(
+          (subject) => Array.isArray(subject.levels) && subject.levels.includes(String(level))
+        )
+      : subjects;
 
-    res.json({ subjects });
+    res.json({ subjects: filtered });
   })
 );
 
 router.post(
   '/',
-  requireRole('SUPER_ADMIN'),
+  requireRole('SUPER_ADMIN', 'DOS'),
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
     const campusId = req.user.campusId;
@@ -50,6 +57,7 @@ router.post(
 
     const created = await prisma.subject.create({
       data: {
+        id: randomUUID(),
         campusId,
         name: data.name,
         code: data.code.toUpperCase(),
@@ -73,7 +81,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole('SUPER_ADMIN'),
+  requireRole('SUPER_ADMIN', 'DOS'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
     const campusId = req.user.campusId;
@@ -121,7 +129,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole('SUPER_ADMIN'),
+  requireRole('SUPER_ADMIN', 'DOS'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.subject.findUnique({
       where: { id: req.params.id, campusId: req.user.campusId },

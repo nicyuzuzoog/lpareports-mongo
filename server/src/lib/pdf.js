@@ -14,22 +14,11 @@ const COLORS = {
   line: '#dfe5ec',
   light: '#f4f6f8',
   white: '#ffffff',
-  amber: '#8a6100',
-  rwandaYellow: '#f7d117'
+  amber: '#a35c00',
+  rwandaYellow: '#f7d117',
+  rwandaGreen: '#006600',
+  rwandaRed: '#c8102e'
 };
-
-// Exact Rwanda NESA primary grading bands (higher points are better).
-const RWANDA_GRADING_KEY = [
-  { grade: 'A', min: 70, max: 100, points: 6, remark: 'Excellent' },
-  { grade: 'B', min: 65, max: 69, points: 5, remark: 'Very Good' },
-  { grade: 'C', min: 60, max: 64, points: 4, remark: 'Good' },
-  { grade: 'D', min: 50, max: 59, points: 3, remark: 'Satisfactory' },
-  { grade: 'E', min: 40, max: 49, points: 2, remark: 'Adequate' },
-  { grade: 'S', min: 20, max: 39, points: 1, remark: 'Fair' },
-  { grade: 'F', min: 0, max: 19, points: 0, remark: 'Fail' }
-];
-
-const FAILURE_GRADES = ['F', 'S', 'E'];
 
 const PAGE = {
   width: 595.28,
@@ -39,498 +28,321 @@ const PAGE = {
 };
 
 const LEVEL_TITLES = {
-  NURSERY: 'NURSERY SECTION',
-  LOWER_PRIMARY: 'LOWER PRIMARY SECTION',
-  UPPER_PRIMARY: 'UPPER PRIMARY SECTION'
+  NURSERY: 'Nursery',
+  LOWER_PRIMARY: 'Lower Primary',
+  UPPER_PRIMARY: 'Upper Primary'
 };
 
-function headerBand(doc, y, text, subtext) {
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, 26).fill(COLORS.navy);
-  doc.fillColor(COLORS.white).font('Helvetica-Bold').fontSize(11.5)
-    .text(text, PAGE.margin + 10, y + 7, { width: PAGE.contentWidth - 20, align: 'center' });
-  if (subtext) {
-    doc.font('Helvetica').fontSize(7.5).fillColor('#dbe6f2')
-      .text(subtext, PAGE.margin + PAGE.contentWidth - 190, y + 9, { width: 180, align: 'right' });
-  }
-  return y + 26;
+const ROW_HEIGHT = 16;
+
+/** Rwandan grade colours: A/B green, C/D normal, E/S/F warning. */
+function gradeColor(grade) {
+  if (grade === 'A' || grade === 'B') return COLORS.green;
+  if (['E', 'S', 'F'].includes(grade)) return COLORS.amber;
+  return COLORS.ink;
 }
 
-function drawSchoolHeader(doc, payload) {
-  const { school } = payload;
-  const schoolName = school.campusName || school.name;
-  const schoolAddress = school.campusLocation || school.address;
-  const campusLabel = school.campusShort ? `${school.campusShort} CAMPUS` : 'MAIN CAMPUS';
+function band(doc, y, text, height = 20) {
+  doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill(COLORS.navy);
+  doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.white)
+    .text(text, PAGE.margin, y + 5.5, { width: PAGE.contentWidth, align: 'center', lineBreak: false });
+  return y + height;
+}
+
+function drawSchoolHeader(doc, payload, settings) {
+  const school = payload.school || {};
+  const schoolName = school.campusName || school.name || settings?.schoolName || 'LIGHT PEACE ACADEMY';
+  const address = school.address || school.campusLocation || '';
+  const motto = school.motto || settings?.schoolMotto || '';
   let textX = PAGE.margin;
   let textWidth = PAGE.contentWidth;
 
   if (fs.existsSync(LOGO_PATH)) {
     try {
-      doc.image(LOGO_PATH, PAGE.margin, PAGE.margin, { fit: [58, 58] });
-      textX = PAGE.margin + 70;
-      textWidth = PAGE.contentWidth - 140;
+      doc.image(LOGO_PATH, PAGE.margin, 30, { fit: [46, 46] });
+      textX = PAGE.margin + 56;
+      textWidth = PAGE.contentWidth - 56;
     } catch (error) {
-      // Ignore a corrupt logo and fall back to text-only header.
+      // Corrupt logo: fall back to a text-only header.
     }
   }
 
-  const nameSize = schoolName.length > 22 ? 15 : 19;
-  doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(nameSize)
-    .text(schoolName.toUpperCase(), textX, PAGE.margin + 2, { width: textWidth, align: 'center' });
-  doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(COLORS.green)
-    .text(school.motto, textX, PAGE.margin + 27, { width: textWidth, align: 'center' });
-  doc.font('Helvetica').fontSize(7.5).fillColor(COLORS.muted)
-    .text(`${schoolAddress}  |  Tel: ${school.phone}  |  ${school.email}`, textX, PAGE.margin + 40, {
+  doc.fillColor(COLORS.navy).font('Helvetica-Bold')
+    .fontSize(schoolName.length > 24 ? 14 : 17)
+    .text(String(schoolName).toUpperCase(), textX, 31, {
       width: textWidth,
-      align: 'center'
+      align: 'center',
+      lineBreak: false
+    });
+  doc.font('Helvetica-Oblique').fontSize(8).fillColor(COLORS.green)
+    .text(motto, textX, 52, { width: textWidth, align: 'center', lineBreak: false });
+  doc.font('Helvetica').fontSize(7.2).fillColor(COLORS.muted)
+    .text(`${address}  |  Tel: ${school.phone || '-'}  |  ${school.email || '-'}`, textX, 64, {
+      width: textWidth,
+      align: 'center',
+      lineBreak: false
     });
   doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.muted)
-    .text(`${campusLabel}  |  OFFICE OF THE HEAD TEACHER`, textX, PAGE.margin + 52, {
+    .text('OFFICE OF THE HEAD TEACHER', textX, 76, {
       width: textWidth,
-      align: 'center'
+      align: 'center',
+      lineBreak: false
     });
 
-  doc.moveTo(PAGE.margin, 106).lineTo(PAGE.margin + PAGE.contentWidth, 106)
-    .lineWidth(2).stroke(COLORS.rwandaYellow);
-  doc.moveTo(PAGE.margin, 109).lineTo(PAGE.margin + PAGE.contentWidth, 109).lineWidth(1.4).stroke(COLORS.navy);
-  doc.moveTo(PAGE.margin, 112).lineTo(PAGE.margin + PAGE.contentWidth, 112).lineWidth(0.5).stroke(COLORS.green);
-  return 121;
+  // Thin Rwandan-colour accent line.
+  doc.moveTo(PAGE.margin, 91).lineTo(PAGE.margin + PAGE.contentWidth, 91)
+    .lineWidth(1.2).stroke(COLORS.rwandaYellow);
+  doc.moveTo(PAGE.margin, 93).lineTo(PAGE.margin + PAGE.contentWidth, 93)
+    .lineWidth(1.2).stroke(COLORS.rwandaGreen);
+  doc.moveTo(PAGE.margin, 95).lineTo(PAGE.margin + PAGE.contentWidth, 95)
+    .lineWidth(1.2).stroke(COLORS.rwandaRed);
+  return 104;
 }
 
-function infoPanel(doc, payload, y) {
+function studentPanel(doc, payload, y) {
+  const position = payload.summary?.position;
   const rows = [
-    ['STUDENT NAME', payload.student.fullName, 'STUDENT ID', payload.student.code],
-    ['CLASS', `${payload.className} (${LEVEL_TITLES[payload.level]})`, 'GENDER', payload.student.gender === 'FEMALE' ? 'Female' : 'Male'],
+    ['STUDENT NAME', payload.student?.fullName || payload.student?.name || '-', 'STUDENT ID', payload.student?.code || '-'],
+    [
+      'CLASS',
+      payload.className || payload.student?.className || '-',
+      'GENDER',
+      payload.student?.gender === 'FEMALE' ? 'Female' : payload.student?.gender === 'MALE' ? 'Male' : '-'
+    ],
     [
       'POSITION',
-      payload.summary.position
-        ? `Position: ${payload.summary.position} / ${payload.summary.outOf}`
-        : 'Position: - / -',
-      'GUARDIAN',
-      payload.student.guardianName || '-'
+      position ? `${position} / ${payload.summary?.outOf ?? '-'}` : '- / -',
+      'AVERAGE',
+      payload.summary?.average === null || payload.summary?.average === undefined
+        ? '-'
+        : `${payload.summary.average}%`
     ]
   ];
 
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, 70).fill(COLORS.light);
-  doc.rect(PAGE.margin, y, 3, 70).fill(COLORS.green);
-
+  const height = 66;
+  doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill(COLORS.light);
+  doc.rect(PAGE.margin, y, 3, height).fill(COLORS.green);
   const colWidth = PAGE.contentWidth / 2;
-  rows.forEach((row, index) => {
-    const rowY = y + 9 + index * 19;
-    doc.font('Helvetica-Bold').fontSize(6.5).fillColor(COLORS.muted)
-      .text(row[0], PAGE.margin + 12, rowY, { width: 80, lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(8.7).fillColor(COLORS.ink)
-      .text(String(row[1] || '-'), PAGE.margin + 88, rowY - 1, { width: colWidth - 98, lineBreak: false, ellipsis: true });
 
-    doc.font('Helvetica-Bold').fontSize(6.5).fillColor(COLORS.muted)
-      .text(row[2], PAGE.margin + colWidth + 8, rowY, { width: 90, lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(8.7).fillColor(COLORS.ink)
-      .text(String(row[3] || '-'), PAGE.margin + colWidth + 92, rowY - 1, {
-        width: colWidth - 102,
+  rows.forEach((row, index) => {
+    const rowY = y + 8 + index * 19;
+    doc.font('Helvetica-Bold').fontSize(6.4).fillColor(COLORS.muted)
+      .text(row[0], PAGE.margin + 12, rowY, { width: 76, lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(8.6).fillColor(COLORS.ink)
+      .text(String(row[1] || '-'), PAGE.margin + 90, rowY - 1.5, {
+        width: colWidth - 100,
+        lineBreak: false,
+        ellipsis: true
+      });
+    doc.font('Helvetica-Bold').fontSize(6.4).fillColor(COLORS.muted)
+      .text(row[2], PAGE.margin + colWidth + 8, rowY, { width: 76, lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(8.6).fillColor(COLORS.ink)
+      .text(String(row[3] || '-'), PAGE.margin + colWidth + 86, rowY - 1.5, {
+        width: colWidth - 96,
         lineBreak: false,
         ellipsis: true
       });
   });
-
-  return y + 82;
+  return y + height;
 }
 
-function drawTable(doc, payload, settings, startY) {
-  const columns = [
-    { key: 'index', label: '#', width: 20, align: 'center' },
-    { key: 'subject', label: 'SUBJECT', width: 138, align: 'left' },
-    { key: 'ca', label: 'C/W', width: 36, align: 'center' },
-    { key: 'exam', label: 'EXAM', width: 38, align: 'center' },
-    { key: 'total', label: 'TOTAL', width: 40, align: 'center' },
-    { key: 'grade', label: 'GRADE', width: 36, align: 'center' },
-    { key: 'points', label: 'PTS', width: 28, align: 'center' },
-    {
-      key: 'remark',
-      label: payload.level === 'UPPER_PRIMARY' ? 'REMARKS' : 'COMPETENCY',
-      width: 100,
-      align: 'left'
-    },
-    { key: 'teacher', label: 'TEACHER', width: 79.28, align: 'left' }
-  ];
-
+function drawColumns(doc, columns, y, height = 18) {
   const xs = [];
   let cursor = PAGE.margin;
-  columns.forEach((col) => {
+  columns.forEach((column) => {
     xs.push(cursor);
-    cursor += col.width;
+    cursor += column.width;
   });
-
-  const headerHeight = 20;
-  doc.rect(PAGE.margin, startY, PAGE.contentWidth, headerHeight).fill(COLORS.navy);
-  columns.forEach((col, i) => {
+  doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill(COLORS.navy);
+  columns.forEach((column, index) => {
     doc.font('Helvetica-Bold').fontSize(6.8).fillColor(COLORS.white)
-      .text(col.label, xs[i] + 4, startY + 6.5, {
-        width: col.width - 8,
-        align: col.align,
+      .text(column.label, xs[index] + 3, y + 5.5, {
+        width: column.width - 6,
+        align: column.align || 'center',
         lineBreak: false
       });
   });
+  return { xs, y: y + height };
+}
 
-  let y = startY + headerHeight;
-  const rowPadding = 4.5;
+function cell(doc, text, x, y, width, align, options = {}) {
+  doc.font(options.font || 'Helvetica')
+    .fontSize(options.size || 7.4)
+    .fillColor(options.color || COLORS.ink)
+    .text(String(text ?? '-'), x + 3, y + 4.5, {
+      width: width - 6,
+      align: align || 'center',
+      lineBreak: false,
+      ellipsis: true
+    });
+}
 
-  payload.marks.forEach((mark, index) => {
-    const remark = payload.level === 'UPPER_PRIMARY' ? mark.remark : mark.competency || mark.remark;
-    const subjectText = mark.subject;
-    doc.font('Helvetica-Bold').fontSize(7.8);
-    const subjectHeight = doc.heightOfString(subjectText, { width: columns[1].width - 8 });
-    doc.font('Helvetica').fontSize(7);
-    const remarkHeight = doc.heightOfString(String(remark || '-'), { width: columns[7].width - 8 });
-    const rowHeight = Math.max(18, Math.ceil(Math.max(subjectHeight, remarkHeight) + rowPadding * 2));
+function subjectTable(doc, payload, startY) {
+  const isMidterm = payload.type === 'MIDTERM';
+  const columns = isMidterm
+    ? [
+        { label: 'No', width: 30, align: 'center' },
+        { label: 'Subject', width: 275, align: 'left' },
+        { label: 'Mid-term', width: 90, align: 'center' },
+        { label: 'Grade', width: 120.28, align: 'center' }
+      ]
+    : [
+        { label: 'No', width: 26, align: 'center' },
+        { label: 'Subject', width: 184, align: 'left' },
+        { label: 'Mid-term', width: 76, align: 'center' },
+        { label: 'End-term', width: 76, align: 'center' },
+        { label: 'Total', width: 62, align: 'center' },
+        { label: 'Grade', width: 91.28, align: 'center' }
+      ];
 
-    if (y + rowHeight > 760) {
-      doc.addPage();
-      y = PAGE.margin;
-    }
+  const header = drawColumns(doc, columns, startY);
+  let y = header.y;
+  const marks = payload.marks || [];
 
-    if (index % 2 === 1) {
-      doc.rect(PAGE.margin, y, PAGE.contentWidth, rowHeight).fill(COLORS.light);
-    }
-    doc.rect(PAGE.margin, y, PAGE.contentWidth, rowHeight).lineWidth(0.35).stroke(COLORS.line);
+  marks.forEach((mark, index) => {
+    if (index % 2 === 1) doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).fill(COLORS.light);
+    doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).lineWidth(0.35).stroke(COLORS.line);
 
-    const textY = y + rowPadding;
-    doc.font('Helvetica').fontSize(7.2).fillColor(COLORS.muted)
-      .text(String(index + 1), xs[0] + 4, textY + 1, { width: columns[0].width - 8, align: 'center', lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(7.8).fillColor(COLORS.ink)
-      .text(subjectText, xs[1] + 4, textY, { width: columns[1].width - 8 });
-    doc.font('Helvetica').fontSize(7.6).fillColor(COLORS.ink)
-      .text(mark.caScore === null ? '-' : String(mark.caScore), xs[2] + 4, textY, { width: columns[2].width - 8, align: 'center', lineBreak: false })
-      .text(mark.examScore === null ? '-' : String(mark.examScore), xs[3] + 4, textY, { width: columns[3].width - 8, align: 'center', lineBreak: false });
-    doc.font('Helvetica-Bold').fillColor(COLORS.navy)
-      .text(mark.total === null ? '-' : String(mark.total), xs[4] + 4, textY, { width: columns[4].width - 8, align: 'center', lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(7.6)
-      .fillColor(mark.grade && FAILURE_GRADES.includes(mark.grade) ? COLORS.amber : COLORS.green)
-      .text(mark.grade || '-', xs[5] + 4, textY, { width: columns[5].width - 8, align: 'center', lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(7.6).fillColor(COLORS.navy)
-      .text(mark.points === null || mark.points === undefined ? '-' : String(mark.points), xs[6] + 4, textY, {
-        width: columns[6].width - 8,
+    const values = isMidterm
+      ? [index + 1, mark.subject, mark.midtermScore ?? '-', mark.grade || '-']
+      : [
+          index + 1,
+          mark.subject,
+          mark.midtermScore ?? '-',
+          mark.examScore ?? '-',
+          mark.total ?? '-',
+          mark.grade || '-'
+        ];
+    values.forEach((value, columnIndex) => {
+      const column = columns[columnIndex];
+      const isGrade = columnIndex === values.length - 1;
+      cell(doc, value, header.xs[columnIndex], y, column.width, column.align, {
+        font: columnIndex === 1 ? 'Helvetica-Bold' : 'Helvetica',
+        color: isGrade ? gradeColor(mark.grade) : COLORS.ink
+      });
+    });
+    y += ROW_HEIGHT;
+  });
+
+  if (!marks.length) {
+    doc.rect(PAGE.margin, y, PAGE.contentWidth, 26).lineWidth(0.35).stroke(COLORS.line);
+    doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(COLORS.muted)
+      .text('No assessment scores recorded.', PAGE.margin, y + 8, {
+        width: PAGE.contentWidth,
         align: 'center',
         lineBreak: false
       });
-    doc.font('Helvetica').fontSize(7).fillColor(COLORS.ink)
-      .text(String(remark || '-'), xs[7] + 4, textY, { width: columns[7].width - 8 });
-    doc.font('Helvetica').fontSize(6.5).fillColor(COLORS.muted)
-      .text(mark.teacher || '-', xs[8] + 4, textY, { width: columns[8].width - 8, lineBreak: false, ellipsis: true });
-
-    y += rowHeight;
-  });
-
-  if (!payload.marks.length) {
-    doc.rect(PAGE.margin, y, PAGE.contentWidth, 28).stroke(COLORS.line);
-    doc.font('Helvetica-Oblique').fontSize(8).fillColor(COLORS.muted)
-      .text('No assessment scores recorded for this term.', PAGE.margin, y + 10, { width: PAGE.contentWidth, align: 'center' });
-    y += 28;
+    y += 26;
   }
-
   return y;
 }
 
-function summaryStrip(doc, payload, y) {
-  const cells = [
-    ['SUBJECTS', payload.summary.subjectsAssessed],
-    ['AGGREGATE PTS', payload.summary.aggregate ?? '-'],
-    ['AVERAGE', `${payload.summary.average ?? '-'}%`],
-    ['OVERALL GRADE', payload.summary.grade],
-    ['POSITION', payload.summary.position ? `${payload.summary.position} / ${payload.summary.outOf}` : '-']
+function annualTable(doc, payload, startY) {
+  const columns = [
+    { label: 'Term', width: 170, align: 'left' },
+    { label: 'Average', width: 115, align: 'center' },
+    { label: 'Grade', width: 115, align: 'center' },
+    { label: 'Position', width: 115.28, align: 'center' }
   ];
-  const height = 42;
-  const width = PAGE.contentWidth / cells.length;
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill('#eef3f8');
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, 0.8).fill(COLORS.navy);
+  const header = drawColumns(doc, columns, startY);
+  let y = header.y;
+  const terms = payload.annual?.terms || [];
 
-  cells.forEach((cell, index) => {
-    const x = PAGE.margin + index * width;
-    if (index > 0) doc.moveTo(x, y + 7).lineTo(x, y + height - 7).lineWidth(0.4).stroke('#c9d6e3');
-    doc.font('Helvetica-Bold').fontSize(6.2).fillColor(COLORS.muted)
-      .text(cell[0], x + 5, y + 8, { width: width - 10, align: 'center' });
-    doc.font('Helvetica-Bold').fontSize(11).fillColor(COLORS.navy)
-      .text(String(cell[1] ?? '-'), x + 5, y + 19, { width: width - 10, align: 'center' });
-  });
-
-  return y + height + 8;
-}
-
-function gradingKey(doc, payload, settings, y) {
-  // Always print the national bands exactly, regardless of local settings.
-  const scale = RWANDA_GRADING_KEY;
-  doc.font('Helvetica-Bold').fontSize(6.8).fillColor(COLORS.navy)
-    .text('RWANDA NATIONAL GRADING KEY (NESA)', PAGE.margin, y, { lineBreak: false });
-
-  const keyY = y + 12;
-  const cellWidth = PAGE.contentWidth / scale.length;
-  const cellHeight = 32;
-  doc.rect(PAGE.margin, keyY, PAGE.contentWidth, cellHeight).fill('#f7f9fb');
-
-  scale.forEach((item, index) => {
-    const x = PAGE.margin + index * cellWidth;
-    doc.rect(x, keyY, cellWidth, cellHeight).lineWidth(0.4).stroke(COLORS.line);
-    doc.font('Helvetica-Bold').fontSize(11)
-      .fillColor(FAILURE_GRADES.includes(item.grade) ? COLORS.amber : COLORS.green)
-      .text(item.grade, x + 3, keyY + 4, { width: cellWidth - 6, align: 'center', lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(6.6).fillColor(COLORS.ink)
-      .text(`${item.min}-${item.max}`, x + 3, keyY + 17, {
-        width: cellWidth - 6,
-        align: 'center',
-        lineBreak: false
-      });
-    doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
-      .text(`${item.points} pt${item.points === 1 ? '' : 's'}`, x + 3, keyY + 25, {
-        width: cellWidth - 6,
-        align: 'center',
-        lineBreak: false
-      });
-  });
-
-  return keyY + cellHeight + 8;
-}
-
-function commentsBlock(doc, payload, settings, y) {
-  const sections = [
-    { label: "CLASS TEACHER'S COMMENT", text: payload.comments.teacher || '................................................................................................................' },
-    { label: "DEAN OF STUDIES' COMMENT", text: payload.comments.dos || '................................................................................................................' },
-    { label: "HEAD TEACHER'S COMMENT", text: payload.comments.headTeacher || '................................................................................................................' }
-  ];
-
-  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(COLORS.navy)
-    .text('COMMENTS', PAGE.margin, y);
-  y += 12;
-
-  sections.forEach((section) => {
-    if (y > 748) {
-      doc.addPage();
-      y = PAGE.margin;
-    }
-    doc.font('Helvetica-Bold').fontSize(6.5).fillColor(COLORS.muted)
-      .text(section.label, PAGE.margin, y);
-    doc.font('Helvetica').fontSize(8).fillColor(COLORS.ink)
-      .text(section.text, PAGE.margin, y + 10, { width: PAGE.contentWidth, lineGap: 1.5 });
-    const used = doc.heightOfString(section.text, { width: PAGE.contentWidth, fontSize: 8, lineGap: 1.5 });
-    y += 14 + Math.max(18, used);
-    doc.moveTo(PAGE.margin + 330, y - 2).lineTo(PAGE.margin + PAGE.contentWidth, y - 2)
-      .lineWidth(0.5).stroke(COLORS.line);
-    doc.font('Helvetica-Oblique').fontSize(6).fillColor(COLORS.muted)
-      .text('Signature / Date', PAGE.margin + 400, y + 1, { width: 120, align: 'right' });
-    y += 14;
-  });
-
-  if (y > 735) {
-    doc.addPage();
-    y = PAGE.margin;
-  }
-
-  const signY = y + 10;
-  const slots = [
-    { label: 'Class Teacher', name: payload.marks.find((m) => m.teacher)?.teacher || '' },
-    { label: 'Dean of Studies', name: settings.dosName },
-    { label: 'Head Teacher', name: settings.headTeacherName }
-  ];
-  const slotWidth = PAGE.contentWidth / 3;
-  slots.forEach((slot, index) => {
-    const x = PAGE.margin + index * slotWidth;
-    doc.moveTo(x + 8, signY).lineTo(x + slotWidth - 18, signY).lineWidth(0.6).stroke(COLORS.ink);
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.ink)
-      .text(slot.name || '................................', x + 8, signY + 4, { width: slotWidth - 26 });
-    doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
-      .text(slot.label.toUpperCase(), x + 8, signY + 15, { width: slotWidth - 26 });
-  });
-
-  return signY + 30;
-}
-
-function compactHeader(doc, payload, title) {
-  const schoolName = payload.school.campusName || payload.school.name;
-  const schoolAddress = payload.school.campusLocation || payload.school.address;
-  doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(12)
-    .text(schoolName.toUpperCase(), PAGE.margin, PAGE.margin, { width: PAGE.contentWidth, align: 'center' });
-  doc.font('Helvetica').fontSize(7).fillColor(COLORS.muted)
-    .text(`${schoolAddress}  |  ${payload.student.fullName}  |  ${payload.student.code}  |  ${payload.className}`, PAGE.margin, PAGE.margin + 16, {
-      width: PAGE.contentWidth,
-      align: 'center'
-    });
-  doc.moveTo(PAGE.margin, PAGE.margin + 30).lineTo(PAGE.margin + PAGE.contentWidth, PAGE.margin + 30)
-    .lineWidth(1).stroke(COLORS.navy);
-  headerBand(doc, PAGE.margin + 38, title, null);
-  return PAGE.margin + 74;
-}
-
-function cumulativePage(doc, payload, settings) {
-  if (payload.term !== 'TERM3' || !payload.cumulative) return;
-
-  doc.addPage();
-  let y = compactHeader(doc, payload, `ANNUAL CUMULATIVE SUMMARY — ${payload.year}`);
-
-  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(COLORS.navy)
-    .text('TERM-BY-TERM PERFORMANCE', PAGE.margin, y);
-  y += 13;
-
-  const termColumns = ['TERM', 'AVERAGE', 'GRADE', 'REMARK'];
-  const termWidths = [150, 100, 80, 185];
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, 18).fill(COLORS.navy);
-  let x = PAGE.margin;
-  termColumns.forEach((label, index) => {
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.white)
-      .text(label, x + 5, y + 5.5, { width: termWidths[index] - 10, align: index === 0 ? 'left' : 'center' });
-    x += termWidths[index];
-  });
-  y += 18;
-
-  payload.cumulative.termAverages.forEach((term, rowIndex) => {
-    if (rowIndex % 2 === 1) doc.rect(PAGE.margin, y, PAGE.contentWidth, 18).fill(COLORS.light);
-    doc.rect(PAGE.margin, y, PAGE.contentWidth, 18).lineWidth(0.35).stroke(COLORS.line);
+  terms.forEach((term, index) => {
+    if (index % 2 === 1) doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).fill(COLORS.light);
+    doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).lineWidth(0.35).stroke(COLORS.line);
     const values = [
-      term.label,
-      term.average === null ? '-' : `${term.average}%`,
-      term.grade,
-      term.grade === '-' ? 'Not assessed' : ''
+      term.label || term.term,
+      term.average === null || term.average === undefined ? '-' : `${term.average}%`,
+      term.grade || '-',
+      term.position ? `${term.position} / ${term.outOf ?? '-'}` : '- / -'
     ];
-    let cellX = PAGE.margin;
-    values.forEach((value, index) => {
-      doc.font(index === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(7.6).fillColor(COLORS.ink)
-        .text(String(value), cellX + 5, y + 5.5, { width: termWidths[index] - 10, align: index === 0 ? 'left' : 'center' });
-      cellX += termWidths[index];
+    values.forEach((value, columnIndex) => {
+      const column = columns[columnIndex];
+      cell(doc, value, header.xs[columnIndex], y, column.width, column.align, {
+        font: columnIndex === 0 ? 'Helvetica-Bold' : 'Helvetica',
+        color: columnIndex === 2 ? gradeColor(term.grade) : COLORS.ink
+      });
     });
-    y += 18;
+    y += ROW_HEIGHT;
   });
 
-  y += 14;
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, 34).fill('#eef3f8');
-  doc.rect(PAGE.margin, y, 3, 34).fill(COLORS.navy);
-  doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.muted)
-    .text('OVERALL ANNUAL AVERAGE', PAGE.margin + 12, y + 7);
-  doc.font('Helvetica-Bold').fontSize(15).fillColor(COLORS.navy)
-    .text(`${payload.cumulative.overallAverage ?? '-'}%`, PAGE.margin + 12, y + 15);
-  doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.muted)
-    .text('FINAL GRADE', PAGE.margin + 210, y + 7);
-  doc.font('Helvetica-Bold').fontSize(13).fillColor(COLORS.green)
-    .text(payload.cumulative.overallGrade, PAGE.margin + 210, y + 16);
-  doc.font('Helvetica').fontSize(7).fillColor(COLORS.ink)
-    .text(payload.cumulative.overallRemark, PAGE.margin + 300, y + 15, { width: 200 });
-
-  y += 48;
-  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(COLORS.navy)
-    .text('SUBJECT CUMULATIVE PERFORMANCE', PAGE.margin, y);
-  y += 13;
-
-  const cols = [
-    { label: 'SUBJECT', width: 165 },
-    { label: 'TERM I', width: 55 },
-    { label: 'TERM II', width: 55 },
-    { label: 'TERM III', width: 58 },
-    { label: 'AVERAGE', width: 60 },
-    { label: 'GRADE', width: 48 },
-    { label: 'REMARK', width: 74.28 }
-  ];
-  doc.rect(PAGE.margin, y, PAGE.contentWidth, 18).fill(COLORS.navy);
-  x = PAGE.margin;
-  cols.forEach((col, index) => {
-    doc.font('Helvetica-Bold').fontSize(6.7).fillColor(COLORS.white)
-      .text(col.label, x + 4, y + 5.5, { width: col.width - 8, align: index === 0 ? 'left' : 'center' });
-    x += col.width;
-  });
-  y += 18;
-
-  payload.cumulative.subjects.forEach((subject, rowIndex) => {
-    const remarkHeight = doc.font('Helvetica').fontSize(6.8)
-      .heightOfString(subject.remark || '-', { width: cols[6].width - 8 });
-    const rowHeight = Math.max(17, remarkHeight + 8);
-    if (y + rowHeight > 770) {
-      doc.addPage();
-      y = PAGE.margin;
-    }
-    if (rowIndex % 2 === 1) doc.rect(PAGE.margin, y, PAGE.contentWidth, rowHeight).fill(COLORS.light);
-    doc.rect(PAGE.margin, y, PAGE.contentWidth, rowHeight).lineWidth(0.35).stroke(COLORS.line);
-
-    const values = [
-      subject.subject,
-      subject.t1 ?? '-',
-      subject.t2 ?? '-',
-      subject.t3 ?? '-',
-      subject.average ?? '-',
-      subject.grade,
-      subject.remark || '-'
-    ];
-    let cellX = PAGE.margin;
-    values.forEach((value, index) => {
-      doc.font(index === 0 || index === 4 ? 'Helvetica-Bold' : 'Helvetica')
-        .fontSize(index === 0 ? 7.2 : 7)
-        .fillColor(index === 5 && FAILURE_GRADES.includes(subject.grade) ? COLORS.amber : COLORS.ink)
-        .text(String(value), cellX + 4, y + 4.5, {
-          width: cols[index].width - 8,
-          align: index === 0 || index === 6 ? 'left' : 'center'
-        });
-      cellX += cols[index].width;
-    });
-    y += rowHeight;
-  });
-
+  const annual = payload.annual || {};
   y += 10;
-  doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.muted)
-    .text(
-      'The cumulative summary combines the Term I, Term II and Term III results for the academic year. Averages are calculated from recorded subject totals.',
-      PAGE.margin,
-      y,
-      { width: PAGE.contentWidth }
-    );
-
-  // Keep the signature block together on one page. If the cumulative table has
-  // reached the bottom of the sheet, start a fresh page for the signatories.
-  if (y > 700) {
-    doc.addPage();
-    y = PAGE.margin;
-  }
-  const signY = Math.max(760, y + 20);
-  const slots = [
-    { label: 'Class Teacher', name: payload.marks.find((m) => m.teacher)?.teacher || '' },
-    { label: 'Dean of Studies', name: settings.dosName },
-    { label: 'Head Teacher', name: settings.headTeacherName }
+  const height = 40;
+  doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill('#eef3f8');
+  doc.rect(PAGE.margin, y, 3, height).fill(COLORS.navy);
+  const cells = [
+    ['OVERALL AVERAGE', annual.overallAverage === null || annual.overallAverage === undefined ? '-' : `${annual.overallAverage}%`, COLORS.navy],
+    ['POSITION', annual.overallPosition ? `${annual.overallPosition} / ${annual.overallOutOf ?? '-'}` : '- / -', COLORS.navy],
+    ['GRADE', annual.overallGrade || '-', gradeColor(annual.overallGrade)]
   ];
-  const slotWidth = PAGE.contentWidth / 3;
-  slots.forEach((slot, index) => {
-    const sx = PAGE.margin + index * slotWidth;
-    doc.moveTo(sx + 8, signY).lineTo(sx + slotWidth - 18, signY).lineWidth(0.6).stroke(COLORS.ink);
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.ink)
-      .text(slot.name || '................................', sx + 8, signY + 4, { width: slotWidth - 26 });
-    doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
-      .text(slot.label.toUpperCase(), sx + 8, signY + 15, { width: slotWidth - 26 });
+  const cellWidth = PAGE.contentWidth / cells.length;
+  cells.forEach(([label, value, color], index) => {
+    const x = PAGE.margin + index * cellWidth;
+    if (index > 0) doc.moveTo(x, y + 6).lineTo(x, y + height - 6).lineWidth(0.4).stroke('#c9d6e3');
+    doc.font('Helvetica-Bold').fontSize(6.3).fillColor(COLORS.muted)
+      .text(label, x + 6, y + 7, { width: cellWidth - 12, align: 'center', lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(13).fillColor(color)
+      .text(String(value), x + 6, y + 19, { width: cellWidth - 12, align: 'center', lineBreak: false });
   });
+  return y + height;
 }
 
-function footers(doc, payload) {
-  const range = doc.bufferedPageRange();
-  for (let index = 0; index < range.count; index += 1) {
-    doc.switchToPage(range.start + index);
-    const footerY = PAGE.height - 34;
-    doc.moveTo(PAGE.margin, footerY).lineTo(PAGE.margin + PAGE.contentWidth, footerY)
-      .lineWidth(0.4).stroke(COLORS.line);
-    doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
-      .text(
-        `LPAREPORTS  |  ${payload.school.campusName || payload.school.name}  |  ${payload.student.code}  |  ${payload.termLabel} ${payload.year}`,
-        PAGE.margin,
-        footerY + 5,
-        { width: PAGE.contentWidth - 90 }
-      );
-    doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
-      .text(`Page ${index + 1} of ${range.count}`, PAGE.margin + PAGE.contentWidth - 85, footerY + 5, {
-        width: 85,
-        align: 'right'
-      });
-  }
+function signatures(doc, payload, settings) {
+  const y = 732;
+  const columnWidth = PAGE.contentWidth / 2;
+  const school = payload.school || {};
+  const headName = school.headTeacherName || settings?.headTeacherName || '';
+  const classTeacher = payload.classTeacherName || '';
+
+  [0, 1].forEach((index) => {
+    const x = PAGE.margin + index * columnWidth;
+    doc.moveTo(x + 4, y).lineTo(x + columnWidth - 20, y).lineWidth(0.6).stroke(COLORS.ink);
+  });
+
+  doc.font('Helvetica-Bold').fontSize(7.6).fillColor(COLORS.ink)
+    .text(`Class Teacher: ${classTeacher}`, PAGE.margin + 4, y + 5, {
+      width: columnWidth - 24,
+      lineBreak: false,
+      ellipsis: true
+    });
+  doc.font('Helvetica-Bold').fontSize(7.6).fillColor(COLORS.ink)
+    .text(`Head Teacher: ${headName}`, PAGE.margin + columnWidth + 4, y + 5, {
+      width: columnWidth - 24,
+      lineBreak: false,
+      ellipsis: true
+    });
 }
 
+function footer(doc, payload) {
+  // Keep the whole footer ABOVE PDFKit's bottom margin (841.89 - 40 = 801.89);
+  // drawing below it makes PDFKit silently start a second page.
+  const y = PAGE.height - 58;
+  doc.moveTo(PAGE.margin, y).lineTo(PAGE.margin + PAGE.contentWidth, y)
+    .lineWidth(0.4).stroke(COLORS.line);
+  doc.font('Helvetica').fontSize(6.5).fillColor(COLORS.muted)
+    .text(`LPAREPORTS  |  ${payload.typeLabel || 'Term'}`, PAGE.margin, y + 6, {
+      width: PAGE.contentWidth,
+      align: 'center',
+      lineBreak: false
+    });
+}
+
+/**
+ * Exactly one A4 page for every report type. No addPage(), no page numbers,
+ * no comment blocks, no attendance, no grading key, no approval/submission
+ * details and no aggregate/points column.
+ */
 export function buildReportPdf(payload, settings) {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
         size: 'A4',
         margin: PAGE.margin,
-        bufferPages: true,
         info: {
-          Title: `${payload.student.fullName} - ${payload.termLabel} ${payload.year} Report Card`,
-          Author: payload.school.campusName || payload.school.name || settings.schoolName,
+          Title: `${payload.student?.fullName || payload.student?.name || 'Student'} - ${payload.typeLabel || 'Term'} ${payload.year}`,
+          Author: payload.school?.campusName || payload.school?.name || settings?.schoolName || 'LPAREPORTS',
           Subject: 'LPAREPORTS Student Report Card'
         }
       });
@@ -540,24 +352,13 @@ export function buildReportPdf(payload, settings) {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      let y = drawSchoolHeader(doc, payload);
-      y = headerBand(
-        doc,
-        y,
-        `${payload.termLabel.toUpperCase()} REPORT CARD  —  ${payload.year}`,
-        `STUDENT ID: ${payload.student.code}`
-      );
-      y += 12;
-      y = infoPanel(doc, payload, y);
-      y = drawTable(doc, payload, settings, y);
-      y += 10;
-      y = summaryStrip(doc, payload, y);
-      y = gradingKey(doc, payload, settings, y);
-      y += 4;
-      y = commentsBlock(doc, payload, settings, y);
-
-      cumulativePage(doc, payload, settings);
-      footers(doc, payload);
+      const y = drawSchoolHeader(doc, payload, settings);
+      band(doc, y, `${(payload.typeLabel || 'Term').toUpperCase()} REPORT CARD  —  ${payload.year}`);
+      studentPanel(doc, payload, 132);
+      if (payload.type === 'ANNUAL') annualTable(doc, payload, 210);
+      else subjectTable(doc, payload, 210);
+      signatures(doc, payload, settings);
+      footer(doc, payload);
 
       doc.end();
     } catch (error) {
@@ -567,6 +368,8 @@ export function buildReportPdf(payload, settings) {
 }
 
 export function pdfFileName(payload) {
-  const safeName = payload.student.fullName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
-  return `${payload.student.code}-${safeName}-${payload.term}-${payload.year}.pdf`;
+  const code = payload.student?.code || `LPA-${payload.school?.campusShort || 'M'}-${payload.year}`;
+  const term = payload.term || '';
+  const type = payload.type || 'TERM';
+  return `${code}_${term}_${type}_REPORT.pdf`.replace(/[^a-z0-9_-]+/gi, '_');
 }

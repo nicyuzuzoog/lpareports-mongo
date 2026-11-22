@@ -12,6 +12,7 @@ import {
   initials,
   levelLabel,
   percent,
+  reportTypeLabel,
   termLabel
 } from '../utils/format.js';
 
@@ -91,12 +92,6 @@ export default function StudentDetail() {
                 <dd className="col-7 fw-650">{student.gender === 'FEMALE' ? 'Female' : 'Male'}</dd>
                 <dt className="col-5 text-muted-2 fw-normal">Date of birth</dt>
                 <dd className="col-7 fw-650">{formatDate(student.dateOfBirth)}</dd>
-                <dt className="col-5 text-muted-2 fw-normal">Guardian</dt>
-                <dd className="col-7 fw-650">{student.guardianName || '—'}</dd>
-                <dt className="col-5 text-muted-2 fw-normal">Guardian phone</dt>
-                <dd className="col-7 fw-650">{student.guardianPhone || '—'}</dd>
-                <dt className="col-5 text-muted-2 fw-normal">Address</dt>
-                <dd className="col-7 fw-650">{student.address || '—'}</dd>
                 <dt className="col-5 text-muted-2 fw-normal">Registered</dt>
                 <dd className="col-7 fw-650">{formatDate(student.createdAt)}</dd>
               </dl>
@@ -108,7 +103,6 @@ export default function StudentDetail() {
           <div className="card-soft">
             <div className="card-header">
               <span>Report card history</span>
-              <span className="text-muted-2 fw-normal" style={{ fontSize: '0.72rem' }}>Most recent first</span>
             </div>
             {student.reportCards.length ? (
               <div className="table-responsive">
@@ -116,6 +110,7 @@ export default function StudentDetail() {
                   <thead>
                     <tr>
                       <th>Year</th>
+                      <th>Type</th>
                       <th>Term</th>
                       <th>Class</th>
                       <th>Subjects</th>
@@ -129,7 +124,8 @@ export default function StudentDetail() {
                     {student.reportCards.map((card) => (
                       <tr key={card.id}>
                         <td className="fw-650">{card.year}</td>
-                        <td>{termLabel(card.term)}</td>
+                        <td>{card.typeLabel || reportTypeLabel(card.type)}</td>
+                        <td>{card.termLabel || termLabel(card.term)}</td>
                         <td>{card.className}</td>
                         <td>{card.subjects}</td>
                         <td className="fw-650">{percent(card.average)}</td>

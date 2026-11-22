@@ -1,6 +1,8 @@
-import { STATUS_META, TERMS, LEVELS, ROLES, RWANDA_GRADING } from './constants.js';
+import { STATUS_META, TERMS, REPORT_TYPES, LEVELS, ROLES, RWANDA_GRADING } from './constants.js';
 
 export const termLabel = (term) => TERMS.find((item) => item.value === term)?.label || term;
+
+export const reportTypeLabel = (type) => REPORT_TYPES.find((item) => item.value === type)?.label || type || 'Term';
 
 export const levelLabel = (level) => LEVELS.find((item) => item.value === level)?.label || level;
 
@@ -92,7 +94,8 @@ export function gradeFromScale(score, scale = []) {
   return scale.find((band) => rounded >= band.min && rounded <= band.max)?.grade || '—';
 }
 
-export function computePreviewTotal(ca, exam, courseworkWeight = 40, examWeight = 60) {  const caNumber = ca === '' || ca === null || ca === undefined ? null : Number(ca);
+export function computePreviewTotal(ca, exam, courseworkWeight = 40, examWeight = 60) {
+  const caNumber = ca === '' || ca === null || ca === undefined ? null : Number(ca);
   const examNumber = exam === '' || exam === null || exam === undefined ? null : Number(exam);
   if (caNumber === null && examNumber === null) return null;
   if (Number.isNaN(caNumber) || Number.isNaN(examNumber)) return null;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api/client.js';
+import { api, getSystemSettings } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import PageHeader from '../components/PageHeader.jsx';
@@ -17,17 +17,18 @@ const EMPTY_FORM = {
   gender: 'MALE',
   dateOfBirth: '',
   classId: '',
-  guardianName: '',
-  guardianPhone: '',
   address: '',
   isActive: true
 };
 
-function StudentForm({ show, onClose, onSaved, classes, editing }) {
+function StudentForm({ show, onClose, onSaved, classes, editing, user, registrationEnabled }) {
   const { show: toast } = useToast();
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+
+  const lockedClassId = user?.role === 'TEACHER' ? user.classTeacherClassId : null;
+  const lockedClass = classes.find((item) => item.id === lockedClassId);
 
   useEffect(() => {
     if (!show) return;
@@ -39,17 +40,15 @@ function StudentForm({ show, onClose, onSaved, classes, editing }) {
         code: editing.code || '',
         gender: editing.gender || 'MALE',
         dateOfBirth: editing.dateOfBirth ? String(editing.dateOfBirth).slice(0, 10) : '',
-        classId: editing.classId || '',
-        guardianName: editing.guardianName || '',
-        guardianPhone: editing.guardianPhone || '',
+        classId: lockedClassId || editing.classId || '',
         address: editing.address || '',
         isActive: editing.isActive ?? true
       });
     } else {
-      setForm({ ...EMPTY_FORM, classId: classes[0]?.id || '' });
+      setForm({ ...EMPTY_FORM, classId: lockedClassId || classes[0]?.id || '' });
     }
     setError(null);
-  }, [show, editing, classes]);
+  }, [show, editing, classes, lockedClassId]);
 
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
@@ -60,6 +59,7 @@ function StudentForm({ show, onClose, onSaved, classes, editing }) {
     try {
       const payload = {
         ...form,
+        classId: lockedClassId || form.classId,
         code: form.code.trim() || undefined,
         dateOfBirth: form.dateOfBirth || null
       };
@@ -91,7 +91,7 @@ function StudentForm({ show, onClose, onSaved, classes, editing }) {
           <button type="button" className="btn btn-outline-brand" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="submit" form="student-form" className="btn btn-brand" disabled={busy}>
+          <button type="submit" form="student-form" className="btn btn-brand" disabled={busy || !registrationEnabled}>
             {busy ? <span className="spinner-border spinner-border-sm me-2" /> : null}
             {editing ? 'Save changes' : 'Register student'}
           </button>
@@ -99,6 +99,13 @@ function StudentForm({ show, onClose, onSaved, classes, editing }) {
       }
     >
       {error ? <ErrorAlert error={error} /> : null}
+      {!registrationEnabled ? (
+        <div className="alert alert-warning">
+          <i className="bi bi-lock me-1" />
+          Student registration is currently disabled by the Super Admin. The form is read-only and
+          submissions are disabled.
+        </div>
+      ) : null}
       <form id="student-form" onSubmit={submit}>
         <div className="row g-3">
           <div className="col-md-4">
@@ -164,17 +171,33 @@ function StudentForm({ show, onClose, onSaved, classes, editing }) {
             <label className="form-label">Class *</label>
             <select
               className="form-select"
-              value={form.classId}
+              value={lockedClassId || form.classId}
               onChange={(event) => set('classId', event.target.value)}
+              disabled={Boolean(lockedClassId)}
               required
             >
-              <option value="">Select class</option>
-              {classes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — {levelLabel(item.level)}
+              {lockedClassId ? (
+                <option value={lockedClassId}>
+                  {lockedClass
+                    ? `${lockedClass.name} — ${levelLabel(lockedClass.level)}`
+                    : 'Assigned class'}
                 </option>
-              ))}
+              ) : (
+                <>
+                  <option value="">Select class</option>
+                  {classes.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {levelLabel(item.level)}
+                    </option>
+                  ))}
+                </>
+              )}
             </select>
+            {lockedClassId ? (
+              <div className="text-muted-2 mt-1" style={{ fontSize: '0.72rem' }}>
+                As the class teacher, you can register students into this class only.
+              </div>
+            ) : null}
           </div>
           <div className="col-md-6">
             <label className="form-label">Status</label>
@@ -188,23 +211,7 @@ function StudentForm({ show, onClose, onSaved, classes, editing }) {
             </select>
           </div>
 
-          <div className="col-md-5">
-            <label className="form-label">Guardian name</label>
-            <input
-              className="form-control"
-              value={form.guardianName}
-              onChange={(event) => set('guardianName', event.target.value)}
-            />
-          </div>
-          <div className="col-md-3">
-            <label className="form-label">Guardian phone</label>
-            <input
-              className="form-control"
-              value={form.guardianPhone}
-              onChange={(event) => set('guardianPhone', event.target.value)}
-            />
-          </div>
-          <div className="col-md-4">
+          <div className="col-md-12">
             <label className="form-label">Address</label>
             <input
               className="form-control"
@@ -229,11 +236,26 @@ export default function Students() {
   const [error, setError] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
 
   const canDelete = user.role === 'SUPER_ADMIN' || user.canDelete;
 
   useEffect(() => {
     api.get('/classes').then((res) => setClasses(res.classes)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getSystemSettings()
+      .then((res) => {
+        if (active) setRegistrationEnabled(res.systemSettings?.studentRegistrationEnabled !== false);
+      })
+      .catch(() => {
+        if (active) setRegistrationEnabled(true);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const load = useCallback(() => {
@@ -284,11 +306,24 @@ export default function Students() {
         title="Students"
         subtitle="Register learners, keep their unique codes and manage class placement."
       >
-        <button type="button" className="btn btn-brand" onClick={() => { setEditing(null); setFormOpen(true); }}>
+        <button
+          type="button"
+          className="btn btn-brand"
+          onClick={() => { setEditing(null); setFormOpen(true); }}
+          disabled={!registrationEnabled}
+        >
           <i className="bi bi-person-plus me-2" />
           Register student
         </button>
       </PageHeader>
+
+      {!registrationEnabled ? (
+        <div className="alert alert-warning">
+          <i className="bi bi-lock me-1" />
+          <strong>Student registration is disabled.</strong> The Super Admin has turned off student
+          registration for both campuses. Existing records can be viewed, but the form is read-only.
+        </div>
+      ) : null}
 
       <div className="card-soft mb-3">
         <div className="card-body py-3">
@@ -366,7 +401,6 @@ export default function Students() {
                   <th>Student</th>
                   <th>Class</th>
                   <th>Gender</th>
-                  <th>Guardian</th>
                   <th>Registered</th>
                   <th>Status</th>
                   <th className="text-end">Actions</th>
@@ -389,10 +423,6 @@ export default function Students() {
                       <div className="text-muted-2" style={{ fontSize: '0.7rem' }}>{levelLabel(student.level)}</div>
                     </td>
                     <td>{student.gender === 'FEMALE' ? 'Female' : 'Male'}</td>
-                    <td>
-                      <div>{student.guardianName || '—'}</div>
-                      <div className="text-muted-2" style={{ fontSize: '0.72rem' }}>{student.guardianPhone || ''}</div>
-                    </td>
                     <td>{formatDate(student.createdAt)}</td>
                     <td>
                       {student.isActive ? (
@@ -437,7 +467,12 @@ export default function Students() {
             title="No students found"
             message={filters.search || filters.classId ? 'Try changing your filters.' : 'Register the first student to get started.'}
             action={
-              <button type="button" className="btn btn-brand btn-sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
+              <button
+                type="button"
+                className="btn btn-brand btn-sm"
+                onClick={() => { setEditing(null); setFormOpen(true); }}
+                disabled={!registrationEnabled}
+              >
                 <i className="bi bi-person-plus me-1" /> Register student
               </button>
             }
@@ -456,6 +491,8 @@ export default function Students() {
         onSaved={load}
         classes={classOptions}
         editing={editing}
+        user={user}
+        registrationEnabled={registrationEnabled}
       />
     </>
   );

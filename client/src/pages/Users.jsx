@@ -14,6 +14,7 @@ const EMPTY_FORM = {
   phone: '',
   password: '',
   role: 'TEACHER',
+  classTeacherClassId: '',
   classIds: [],
   subjectIds: [],
   isActive: true,
@@ -46,6 +47,12 @@ export default function Users() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [permissionBusy, setPermissionBusy] = useState(null);
+
+  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
+  const canManage = ['SUPER_ADMIN', 'DOS'].includes(currentUser.role);
+  const availableRoles = isSuperAdmin
+    ? ROLES.filter((role) => role.value !== 'SUPER_ADMIN')
+    : ROLES.filter((role) => role.value === 'TEACHER');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -100,6 +107,7 @@ export default function Users() {
       phone: account.phone || '',
       password: '',
       role: account.role,
+      classTeacherClassId: account.classTeacherClassId || '',
       classIds: account.classes.map((item) => item.id),
       subjectIds: account.subjects.map((item) => item.id),
       isActive: account.isActive,
@@ -119,6 +127,10 @@ export default function Users() {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (!canManage || (!isSuperAdmin && form.role !== 'TEACHER')) {
+      toast('You do not have permission to manage this account.', 'danger');
+      return;
+    }
     if (form.role === 'TEACHER' && (!form.classIds.length || !form.subjectIds.length)) {
       toast('Select at least one class and one subject for the teacher.', 'warning');
       return;
@@ -134,10 +146,11 @@ export default function Users() {
         email: form.email.trim(),
         phone: form.phone.trim() || null,
         role: form.role,
+        classTeacherClassId: form.role === 'TEACHER' ? form.classTeacherClassId || null : null,
         classIds: form.role === 'TEACHER' ? form.classIds : [],
         subjectIds: form.role === 'TEACHER' ? form.subjectIds : [],
         isActive: form.isActive,
-        canDelete: form.canDelete,
+        ...(isSuperAdmin ? { canDelete: form.canDelete } : {}),
         ...(form.password ? { password: form.password } : {})
       };
       if (editing) {
@@ -198,12 +211,14 @@ export default function Users() {
     <>
       <PageHeader
         title="User accounts"
-        subtitle="Only the Super Admin can create accounts. Teachers must be assigned classes and subjects."
+        subtitle="Super Admins manage all roles. Dean of Studies teachers manage teacher accounts and class assignments."
       >
-        <button type="button" className="btn btn-brand" onClick={openCreate}>
-          <i className="bi bi-person-plus me-2" />
-          Add user
-        </button>
+        {canManage ? (
+          <button type="button" className="btn btn-brand" onClick={openCreate}>
+            <i className="bi bi-person-plus me-2" />
+            Add user
+          </button>
+        ) : null}
       </PageHeader>
 
       <div className="card-soft mb-3">
@@ -300,6 +315,15 @@ export default function Users() {
                     <td style={{ maxWidth: 300 }}>
                       {account.role === 'TEACHER' ? (
                         <>
+                          {account.classTeacherClassId ? (
+                            <div className="mb-1">
+                              <span className="badge badge-soft-success">
+                                Class teacher of{' '}
+                                {classes.find((item) => item.id === account.classTeacherClassId)?.name ||
+                                  'assigned class'}
+                              </span>
+                            </div>
+                          ) : null}
                           <div className="d-flex flex-wrap gap-1 mb-1">
                             {account.classes.length ? (
                               account.classes.map((item) => (
@@ -344,7 +368,7 @@ export default function Users() {
                     </td>
                     <td className="text-end">
                       <div className="d-inline-flex flex-wrap gap-1 justify-content-end">
-                        {account.role !== 'SUPER_ADMIN' ? (
+                        {isSuperAdmin && account.role !== 'SUPER_ADMIN' ? (
                           <button
                             type="button"
                             className="btn btn-sm btn-outline-brand"
@@ -359,15 +383,17 @@ export default function Users() {
                             )}
                           </button>
                         ) : null}
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-brand"
-                          title="Edit account"
-                          onClick={() => openEdit(account)}
-                        >
-                          <i className="bi bi-pencil" />
-                        </button>
-                        {account.id !== currentUser.id ? (
+                        {canManage && (isSuperAdmin || account.role === 'TEACHER') ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-brand"
+                            title="Edit account"
+                            onClick={() => openEdit(account)}
+                          >
+                            <i className="bi bi-pencil" />
+                          </button>
+                        ) : null}
+                        {canManage && (isSuperAdmin || account.role === 'TEACHER') && account.id !== currentUser.id ? (
                           <button
                             type="button"
                             className="btn btn-sm btn-soft-danger"
@@ -390,9 +416,11 @@ export default function Users() {
             title="No accounts found"
             message="Try changing the filters or add a new user."
             action={
-              <button type="button" className="btn btn-brand btn-sm" onClick={openCreate}>
-                <i className="bi bi-person-plus me-1" /> Add user
-              </button>
+              canManage ? (
+                <button type="button" className="btn btn-brand btn-sm" onClick={openCreate}>
+                  <i className="bi bi-person-plus me-1" /> Add user
+                </button>
+              ) : null
             }
           />
         )}
@@ -473,12 +501,17 @@ export default function Users() {
                 setForm((prev) => ({ ...prev, role: event.target.value }))
               }
             >
-              {ROLES.map((role) => (
+              {availableRoles.map((role) => (
                 <option key={role.value} value={role.value}>
                   {role.label}
                 </option>
               ))}
             </select>
+            <div className="text-muted-2 mt-1" style={{ fontSize: '0.72rem' }}>
+              {isSuperAdmin
+                ? 'You can create Dean of Studies, Head Teacher and Teacher accounts.'
+                : 'You can only create Teacher accounts.'}
+            </div>
           </div>
           <div className="col-md-3">
             <label className="form-label">Status</label>
@@ -493,25 +526,47 @@ export default function Users() {
               <option value="inactive">Deactivated</option>
             </select>
           </div>
-          <div className="col-md-3 d-flex align-items-end">
-            <div className="form-check mb-2">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                id="can-delete"
-                checked={form.canDelete}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, canDelete: event.target.checked }))
-                }
-              />
-              <label className="form-check-label" htmlFor="can-delete">
-                Can delete records
-              </label>
+          {isSuperAdmin ? (
+            <div className="col-md-3 d-flex align-items-end">
+              <div className="form-check mb-2">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="can-delete"
+                  checked={form.canDelete}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, canDelete: event.target.checked }))
+                  }
+                />
+                <label className="form-check-label" htmlFor="can-delete">
+                  Can delete records
+                </label>
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {form.role === 'TEACHER' ? (
             <>
+              <div className="col-12">
+                <label className="form-label">Class Teacher Of</label>
+                <select
+                  className="form-select"
+                  value={form.classTeacherClassId}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, classTeacherClassId: event.target.value }))
+                  }
+                >
+                  <option value="">Not assigned</option>
+                  {classes.map((schoolClass) => (
+                    <option key={schoolClass.id} value={schoolClass.id}>
+                      {schoolClass.name} — {levelLabel(schoolClass.level)}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-muted-2 mt-1" style={{ fontSize: '0.72rem' }}>
+                  Optional. A class teacher may register students into this class only.
+                </div>
+              </div>
               <div className="col-md-6">
                 <label className="form-label">Classes taught *</label>
                 <div

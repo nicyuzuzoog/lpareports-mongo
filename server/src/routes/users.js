@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -18,6 +19,12 @@ const emailSchema = z
 
 const roleSchema = z.enum(['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER', 'TEACHER']);
 
+// Accepts an id, null or an empty string (empty means "no home class").
+const classTeacherClassField = z.preprocess(
+  (value) => (value === '' ? null : value),
+  z.string().trim().min(1).nullable().optional()
+);
+
 const createSchema = z.object({
   name: z.string().trim().min(2, 'Name is required.'),
   email: emailSchema,
@@ -26,7 +33,9 @@ const createSchema = z.object({
   role: roleSchema,
   classIds: z.array(z.string()).default([]),
   subjectIds: z.array(z.string()).default([]),
-  canDelete: z.boolean().optional()
+  canDelete: z.boolean().optional(),
+  // Optional home class for a class teacher. Empty/null means "no class".
+  classTeacherClassId: classTeacherClassField
 });
 
 const updateSchema = z.object({
@@ -38,7 +47,8 @@ const updateSchema = z.object({
   classIds: z.array(z.string()).optional(),
   subjectIds: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
-  canDelete: z.boolean().optional()
+  canDelete: z.boolean().optional(),
+  classTeacherClassId: classTeacherClassField
 });
 
 const permissionSchema = z.object({ canDelete: z.boolean() });
@@ -47,6 +57,18 @@ const include = {
   classes: { include: { class: true } },
   subjects: { include: { subject: true } }
 };
+
+/**
+ * Role rules:
+ * - SUPER_ADMIN: any user.
+ * - DOS: TEACHER users only.
+ * - Everyone else: no user management.
+ */
+function assertCanManageRole(actor, ...roles) {
+  if (actor.role === 'SUPER_ADMIN') return;
+  if (actor.role === 'DOS' && roles.every((role) => role === 'TEACHER')) return;
+  throw new HttpError(403, 'Only the Super Admin can manage this role.');
+}
 
 async function assertTeacherAssignments(campusId, role, classIds, subjectIds) {
   if (role !== 'TEACHER') return;
@@ -61,18 +83,50 @@ async function assertTeacherAssignments(campusId, role, classIds, subjectIds) {
   if (subjects !== subjectIds.length) throw new HttpError(400, 'One or more selected subjects do not exist.');
 }
 
+/**
+ * Keep SchoolClass.classTeacherId and other users' classTeacherClassId in sync
+ * with this teacher's home class. TeacherClass rows are maintained by the
+ * `classes` nested create in the user payload (the home class is added there).
+ */
+async function syncClassTeacher(campusId, userId, nextClassId, previousClassId) {
+  if (previousClassId && previousClassId !== nextClassId) {
+    await prisma.schoolClass.updateMany({
+      where: { campusId, id: previousClassId, classTeacherId: userId },
+      data: { classTeacherId: null }
+    });
+  }
+  if (!nextClassId) return;
+
+  const schoolClass = await prisma.schoolClass.findFirst({ where: { id: nextClassId, campusId } });
+  if (!schoolClass) throw new HttpError(400, 'The selected class teacher class does not exist.');
+
+  await prisma.user.updateMany({
+    where: { campusId, classTeacherClassId: nextClassId, id: { not: userId } },
+    data: { classTeacherClassId: null }
+  });
+  await prisma.schoolClass.update({
+    where: { id: nextClassId, campusId },
+    data: { classTeacherId: userId }
+  });
+}
+
 async function assertNotLastSuperAdmin(userId, campusId) {
-  const user = await prisma.user.findUnique({ where: { id: userId, campusId } });
+  const user = await prisma.user.findFirst({ where: { id: userId, campusId } });
   if (!user || user.role !== 'SUPER_ADMIN' || !user.isActive) return;
   const remaining = await prisma.user.count({
-    where: { campusId, role: 'SUPER_ADMIN', isActive: true, id: { not: userId } }
+    where: {
+      id: { not: userId },
+      role: 'SUPER_ADMIN',
+      isActive: true,
+      OR: [{ campusId }, { isGlobal: true }]
+    }
   });
   if (remaining === 0) throw new HttpError(400, 'At least one active Super Admin must remain.');
 }
 
 router.get(
   '/',
-  requireRole('SUPER_ADMIN'),
+  requireRole('SUPER_ADMIN', 'DOS'),
   asyncHandler(async (req, res) => {
     const { role, search, status } = req.query;
     const where = { campusId: req.user.campusId };
@@ -98,68 +152,93 @@ router.get(
 
 router.post(
   '/',
-  requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
+    assertCanManageRole(req.user, data.role);
     const campusId = req.user.campusId;
-    await assertTeacherAssignments(campusId, data.role, data.classIds, data.subjectIds);
 
-    const existing = await prisma.user.findUnique({ where: { campusId, email: data.email } });
+    const homeClassId = data.classTeacherClassId || null;
+    const classIds = [...data.classIds];
+    if (homeClassId && !classIds.includes(homeClassId)) classIds.push(homeClassId);
+    await assertTeacherAssignments(campusId, data.role, classIds, data.subjectIds);
+
+    const existing = await prisma.user.findFirst({ where: { campusId, email: data.email } });
     if (existing) throw new HttpError(409, 'A user with this email already exists.');
 
     const user = await prisma.user.create({
       data: {
+        id: randomUUID(),
         campusId,
         name: data.name,
         email: data.email,
         phone: data.phone || null,
         passwordHash: await bcrypt.hash(data.password, 10),
         role: data.role,
+        isActive: true,
         canDelete: data.canDelete === true,
-        classes: { create: data.classIds.map((classId) => ({ campusId, classId })) },
-        subjects: { create: data.subjectIds.map((subjectId) => ({ campusId, subjectId })) }
+        classTeacherClassId: homeClassId,
+        classes: {
+          create: classIds.map((classId) => ({ id: randomUUID(), campusId, classId }))
+        },
+        subjects: {
+          create: data.subjectIds.map((subjectId) => ({ id: randomUUID(), campusId, subjectId }))
+        }
       },
       include
     });
+
+    await syncClassTeacher(campusId, user.id, homeClassId, null);
+    const withAssignments = await prisma.user.findFirst({ where: { id: user.id, campusId }, include });
 
     await writeAudit(req, {
       action: 'CREATE',
       entity: 'User',
       entityId: user.id,
       description: `Created ${user.role} account for ${user.name} (${user.email}).`,
-      after: publicUser(user)
+      after: publicUser(withAssignments || user)
     });
 
-    res.status(201).json({ user: publicUser(user) });
+    res.status(201).json({ user: publicUser(withAssignments || user) });
   })
 );
 
 router.patch(
   '/:id',
-  requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
     const campusId = req.user.campusId;
-    const existing = await prisma.user.findUnique({
+    const existing = await prisma.user.findFirst({
       where: { id: req.params.id, campusId },
       include
     });
     if (!existing) throw notFound('User not found.');
 
     const nextRole = data.role ?? existing.role;
+    assertCanManageRole(req.user, existing.role, nextRole);
+
+    const previousHomeClassId = existing.classTeacherClassId || null;
+    const homeClassProvided = Object.prototype.hasOwnProperty.call(data, 'classTeacherClassId');
+    const nextHomeClassId = homeClassProvided ? data.classTeacherClassId || null : previousHomeClassId;
+
     const nextClassIds = data.classIds ?? existing.classes.map((entry) => entry.classId);
+    if (nextHomeClassId && !nextClassIds.includes(nextHomeClassId)) nextClassIds.push(nextHomeClassId);
     const nextSubjectIds = data.subjectIds ?? existing.subjects.map((entry) => entry.subjectId);
     await assertTeacherAssignments(campusId, nextRole, nextClassIds, nextSubjectIds);
 
     if (data.role && data.role !== 'SUPER_ADMIN') await assertNotLastSuperAdmin(existing.id, campusId);
     if (data.isActive === false) await assertNotLastSuperAdmin(existing.id, campusId);
     if (data.email && data.email !== existing.email) {
-      const duplicate = await prisma.user.findUnique({ where: { campusId, email: data.email } });
+      const duplicate = await prisma.user.findFirst({ where: { campusId, email: data.email } });
       if (duplicate) throw new HttpError(409, 'A user with this email already exists.');
     }
     if (existing.id === req.user.id && data.isActive === false) {
       throw new HttpError(400, 'You cannot deactivate your own account.');
     }
+    if (nextRole === 'SUPER_ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      throw new HttpError(403, 'Only the Super Admin can assign the Super Admin role.');
+    }
+
+    await syncClassTeacher(campusId, existing.id, nextHomeClassId, previousHomeClassId);
 
     const update = {
       campusId,
@@ -168,7 +247,8 @@ router.patch(
       phone: data.phone === undefined ? existing.phone : data.phone || null,
       role: nextRole,
       isActive: data.isActive ?? existing.isActive,
-      canDelete: data.canDelete ?? existing.canDelete
+      canDelete: data.canDelete ?? existing.canDelete,
+      classTeacherClassId: nextHomeClassId
     };
     if (data.password) update.passwordHash = await bcrypt.hash(data.password, 10);
 
@@ -176,11 +256,21 @@ router.patch(
       where: { id: existing.id, campusId },
       data: {
         ...update,
-        ...(data.classIds
-          ? { classes: { deleteMany: {}, create: data.classIds.map((classId) => ({ campusId, classId })) } }
+        ...(data.classIds || homeClassProvided
+          ? {
+              classes: {
+                deleteMany: {},
+                create: nextClassIds.map((classId) => ({ id: randomUUID(), campusId, classId }))
+              }
+            }
           : {}),
         ...(data.subjectIds
-          ? { subjects: { deleteMany: {}, create: data.subjectIds.map((subjectId) => ({ campusId, subjectId })) } }
+          ? {
+              subjects: {
+                deleteMany: {},
+                create: data.subjectIds.map((subjectId) => ({ id: randomUUID(), campusId, subjectId }))
+              }
+            }
           : {})
       },
       include
@@ -208,7 +298,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const { canDelete } = permissionSchema.parse(req.body);
     const campusId = req.user.campusId;
-    const existing = await prisma.user.findUnique({
+    const existing = await prisma.user.findFirst({
       where: { id: req.params.id, campusId },
       include
     });
@@ -234,17 +324,23 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const campusId = req.user.campusId;
-    const existing = await prisma.user.findUnique({
+    const existing = await prisma.user.findFirst({
       where: { id: req.params.id, campusId },
       include
     });
     if (!existing) throw notFound('User not found.');
+    assertCanManageRole(req.user, existing.role);
     if (existing.id === req.user.id) throw new HttpError(400, 'You cannot delete your own account.');
     await assertNotLastSuperAdmin(existing.id, campusId);
 
+    if (existing.classTeacherClassId) {
+      await prisma.schoolClass.updateMany({
+        where: { campusId, id: existing.classTeacherClassId, classTeacherId: existing.id },
+        data: { classTeacherId: null }
+      });
+    }
     await prisma.user.delete({ where: { id: existing.id, campusId } });
 
     await writeAudit(req, {

@@ -10,9 +10,9 @@ services:
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      # Paste the MongoDB Atlas connection string when the blueprint asks.
-      # Include the database name, e.g. mongodb+srv://user:pass@cluster.mongodb.net/lpareports
-      - key: MONGODB_URI
+      # MySQL connection string from cPanel, e.g. mysql://user:pass@HOST:3306/db
+      # Use the public database hostname here; "localhost" only works on the hosting server.
+      - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
         generateValue: true

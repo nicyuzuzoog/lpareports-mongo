@@ -1,12 +1,17 @@
 services:
   db:
-    image: mongo:7
+    image: mysql:8
     container_name: lpareports-db
     restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: lpareports_root
+      MYSQL_DATABASE: lpareports
+      MYSQL_USER: lpareports
+      MYSQL_PASSWORD: lpareports
     ports:
-      - "27017:27017"
+      - "3306:3306"
     volumes:
-      - lpareports_mongodb_data:/data/db
+      - lpareports_mysql_data:/var/lib/mysql
 
 volumes:
-  lpareports_mongodb_data:
+  lpareports_mysql_data:

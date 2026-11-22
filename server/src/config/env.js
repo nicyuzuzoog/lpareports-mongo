@@ -14,14 +14,18 @@ export const config = {
   env: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 5000),
-  // MongoDB Atlas connection string. MONGO_URI / DATABASE_URL are accepted aliases.
-  databaseUrl: process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL,
+  // MySQL connection string used by Prisma (mysql://user:pass@host:3306/db).
+  databaseUrl: process.env.DATABASE_URL,
   jwtSecret: process.env.JWT_SECRET || 'lpareports-development-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   clientOrigins: origins,
   trustProxy: toBool(process.env.TRUST_PROXY, true),
   schoolLogoUrl: process.env.SCHOOL_LOGO_URL || ''
 };
+
+if (!config.databaseUrl || !config.databaseUrl.startsWith('mysql://')) {
+  throw new Error('DATABASE_URL must be set to a MySQL connection string (mysql://...).');
+}
 
 if (config.isProduction && config.jwtSecret === 'lpareports-development-secret-change-me') {
   // Refuse to boot with the development secret in production.

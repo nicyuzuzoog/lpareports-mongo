@@ -20,6 +20,7 @@ import Profile from './pages/Profile.jsx';
 import NotFound from './pages/NotFound.jsx';
 
 const MANAGERS = ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'];
+const ACADEMIC_MANAGERS = ['SUPER_ADMIN', 'DOS'];
 
 export default function App() {
   return (
@@ -66,7 +67,7 @@ export default function App() {
         <Route
           path="classes"
           element={
-            <Protected roles={MANAGERS}>
+            <Protected roles={ACADEMIC_MANAGERS}>
               <Classes />
             </Protected>
           }
@@ -74,7 +75,7 @@ export default function App() {
         <Route
           path="subjects"
           element={
-            <Protected roles={['SUPER_ADMIN']}>
+            <Protected roles={ACADEMIC_MANAGERS}>
               <Subjects />
             </Protected>
           }
@@ -82,7 +83,7 @@ export default function App() {
         <Route
           path="users"
           element={
-            <Protected roles={['SUPER_ADMIN']}>
+            <Protected roles={ACADEMIC_MANAGERS}>
               <Users />
             </Protected>
           }

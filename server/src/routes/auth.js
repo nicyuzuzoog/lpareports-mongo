@@ -53,20 +53,31 @@ router.post(
   asyncHandler(async (req, res) => {
     const { email, password, campusId } = loginSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({
-      where: { campusId, email },
-      include: {
-        classes: { include: { class: true } },
-        subjects: { include: { subject: true } }
-      }
+    const include = {
+      classes: { include: { class: true } },
+      subjects: { include: { subject: true } }
+    };
+
+    // The one global Super Admin signs in from either campus. Look the account
+    // up globally first, then fall back to the normal campus-scoped account.
+    const globalUser = await prisma.user.findFirst({
+      where: { email, isGlobal: true },
+      include
     });
+    const user = globalUser || (await prisma.user.findFirst({
+      where: { campusId, email },
+      include
+    }));
 
     if (!user) throw new HttpError(401, 'Invalid email or password.');
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new HttpError(401, 'Invalid email or password.');
     if (!user.isActive) throw new HttpError(403, 'This account has been deactivated. Contact the Super Admin.');
 
-    req.user = user;
+    // A global account is scoped to the requested campus for this session;
+    // ordinary accounts must already match that campus.
+    const sessionUser = { ...user, isGlobal: user.isGlobal === true, campusId };
+    req.user = sessionUser;
     await writeAudit(req, {
       action: 'LOGIN',
       entity: 'User',
@@ -74,7 +85,7 @@ router.post(
       description: `${user.name} signed in.`
     });
 
-    res.json({ token: signToken(user), user: publicUser(user) });
+    res.json({ token: signToken(sessionUser), user: publicUser(sessionUser) });
   })
 );
 
@@ -94,10 +105,13 @@ router.post(
     const valid = await bcrypt.compare(currentPassword, req.user.passwordHash);
     if (!valid) throw new HttpError(400, 'Current password is incorrect.');
 
+    // A global account keeps its stored campus; only the password changes.
     await prisma.user.update({
-      where: { id: req.user.id, campusId: req.user.campusId },
+      where: req.user.isGlobal
+        ? { id: req.user.id }
+        : { id: req.user.id, campusId: req.user.campusId },
       data: {
-        campusId: req.user.campusId,
+        ...(req.user.isGlobal ? {} : { campusId: req.user.campusId }),
         passwordHash: await bcrypt.hash(newPassword, 10)
       }
     });

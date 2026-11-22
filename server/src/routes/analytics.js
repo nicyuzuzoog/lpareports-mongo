@@ -42,7 +42,7 @@ async function scopedClasses(user, { level, classId } = {}) {
 }
 
 async function cardsFor(classIds, year, term, campusId) {
-  return prisma.reportCard.findMany({
+  const cards = await prisma.reportCard.findMany({
     where: {
       classId: { in: classIds },
       campusId,
@@ -60,6 +60,8 @@ async function cardsFor(classIds, year, term, campusId) {
       class: true
     }
   });
+  // Term analytics ignore MIDTERM and ANNUAL cards; legacy null types count as TERM.
+  return cards.filter((card) => !card.type || card.type === 'TERM');
 }
 
 router.get(
@@ -79,7 +81,7 @@ router.get(
     });
     const classIds = classes.map((item) => item.id);
 
-    const [cards, pending, approved, teachers] = await Promise.all([
+    const [allCards, pending, approved, teachers] = await Promise.all([
       prisma.reportCard.findMany({
         where: { classId: { in: classIds }, campusId: req.user.campusId, year },
         include: { marks: { where: { campusId: req.user.campusId } }, class: true }
@@ -89,6 +91,7 @@ router.get(
           classId: { in: classIds },
           campusId: req.user.campusId,
           year,
+          type: 'TERM',
           status: 'SUBMITTED'
         }
       }),
@@ -97,6 +100,7 @@ router.get(
           classId: { in: classIds },
           campusId: req.user.campusId,
           year,
+          type: 'TERM',
           status: 'APPROVED'
         }
       }),
@@ -104,6 +108,7 @@ router.get(
         where: { role: 'TEACHER', isActive: true, campusId: req.user.campusId }
       })
     ]);
+    const cards = allCards.filter((card) => !card.type || card.type === 'TERM');
 
     const byLevel = {};
     for (const level of ['NURSERY', 'LOWER_PRIMARY', 'UPPER_PRIMARY']) {
@@ -288,7 +293,7 @@ router.get(
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
     ensurePrimaryForDos(req.user, schoolClass.level);
 
-    const cards = await prisma.reportCard.findMany({
+    const allCards = await prisma.reportCard.findMany({
       where: { classId: schoolClass.id, campusId: req.user.campusId, year },
       include: {
         marks: {
@@ -298,6 +303,7 @@ router.get(
         class: true
       }
     });
+    const cards = allCards.filter((card) => !card.type || card.type === 'TERM');
 
     const byStudent = new Map();
     for (const card of cards) {

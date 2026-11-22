@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -23,6 +24,8 @@ const termSchema = z.enum(['TERM1', 'TERM2', 'TERM3']);
 const recordSchema = z.object({
   studentId: z.string().min(1),
   caScore: z.union([z.number(), z.string(), z.null()]).optional(),
+  // Reported separately for MIDTERM reports; excluded from the weighted total.
+  midtermScore: z.union([z.number(), z.string(), z.null()]).optional(),
   examScore: z.union([z.number(), z.string(), z.null()]).optional(),
   competency: z.string().trim().max(80).optional().nullable(),
   remark: z.string().trim().max(120).optional().nullable()
@@ -51,14 +54,17 @@ router.get(
     });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
 
+    // Subject.levels is Json in MySQL - filter the array in JavaScript.
     let subjects = await prisma.subject.findMany({
       where: {
         campusId: req.user.campusId,
-        isActive: true,
-        levels: { has: schoolClass.level }
+        isActive: true
       },
       orderBy: [{ position: 'asc' }, { name: 'asc' }]
     });
+    subjects = subjects.filter(
+      (subject) => Array.isArray(subject.levels) && subject.levels.includes(schoolClass.level)
+    );
 
     if (req.user.role === 'TEACHER') {
       const assigned = teacherSubjectIds(req.user);
@@ -79,7 +85,11 @@ router.get(
       where: { campusId: req.user.campusId, classId: String(classId), term, year },
       include: { marks: { where: { campusId: req.user.campusId } } }
     });
-    const cardByStudent = new Map(cards.map((card) => [card.studentId, card]));
+    const cardByStudent = new Map(
+      cards
+        .filter((card) => !card.type || card.type === 'TERM')
+        .map((card) => [card.studentId, card])
+    );
 
     res.json({
       class: { id: schoolClass.id, name: schoolClass.name, level: schoolClass.level },
@@ -103,6 +113,7 @@ router.get(
             ? {
                 id: mark.id,
                 caScore: mark.caScore,
+                midtermScore: mark.midtermScore ?? null,
                 examScore: mark.examScore,
                 total: mark.total,
                 grade: mark.grade,
@@ -148,7 +159,7 @@ router.post(
         campusId: req.user.campusId,
         classId: data.classId
       },
-      select: { id: true }
+      select: { id: true, firstName: true, otherNames: true, lastName: true }
     });
     if (validStudents.length !== new Set(studentIds).size) {
       throw new HttpError(400, 'One or more students do not belong to the selected class.');
@@ -162,9 +173,10 @@ router.post(
         term: data.term,
         year: data.year
       },
-      select: { studentId: true, status: true }
+      select: { studentId: true, status: true, type: true }
     });
-    const statusByStudent = new Map(existingCards.map((card) => [card.studentId, card.status]));
+    const termCards = existingCards.filter((card) => !card.type || card.type === 'TERM');
+    const statusByStudent = new Map(termCards.map((card) => [card.studentId, card.status]));
 
     if (
       req.user.role === 'TEACHER' &&
@@ -175,60 +187,88 @@ router.post(
 
     let saved = 0;
 
+    const studentNames = new Map(
+      validStudents.map((student) => [
+        student.id,
+        [student.firstName, student.otherNames, student.lastName].filter(Boolean).join(' ')
+      ])
+    );
+    const nullableNumber = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const parsed = Number(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    };
+
     await prisma.$transaction(async (tx) => {
       for (const record of data.records) {
-        const card = await tx.reportCard.upsert({
+        // Explicit per-type lookup: a TERM card must never collide with a
+        // MIDTERM or ANNUAL card for the same student/term/year.
+        const cardCandidates = await tx.reportCard.findMany({
           where: {
-            studentId_term_year: {
-              studentId: record.studentId,
-              term: data.term,
-              year: data.year
-            },
-            campusId: req.user.campusId
-          },
-          update: { campusId: req.user.campusId },
-          create: {
             campusId: req.user.campusId,
             studentId: record.studentId,
-            classId: data.classId,
             term: data.term,
-            year: data.year,
-            createdById: req.user.id
-          }
+            year: data.year
+          },
+          select: { id: true, type: true }
         });
+        let card = cardCandidates.find((candidate) => !candidate.type || candidate.type === 'TERM');
+        if (!card) {
+          const created = await tx.reportCard.create({
+            data: {
+              id: randomUUID(),
+              campusId: req.user.campusId,
+              studentId: record.studentId,
+              classId: data.classId,
+              term: data.term,
+              year: data.year,
+              type: 'TERM',
+              studentName: studentNames.get(record.studentId) || '',
+              createdById: req.user.id,
+              status: 'DRAFT'
+            }
+          });
+          card = created;
+        }
 
-        const caScore = record.caScore === null || record.caScore === '' ? null : Number(record.caScore);
-        const examScore =
-          record.examScore === null || record.examScore === '' ? null : Number(record.examScore);
+        const caScore = nullableNumber(record.caScore);
+        const midtermScore = nullableNumber(record.midtermScore);
+        const examScore = nullableNumber(record.examScore);
         const total = computeTotal(caScore, examScore, settings);
         const gradeInfo = gradeFor(total, schoolClass.level, settings);
 
         const payload = {
-          caScore: caScore === null || Number.isNaN(caScore) ? null : caScore,
-          examScore: examScore === null || Number.isNaN(examScore) ? null : examScore,
+          campusId: req.user.campusId,
+          caScore,
+          midtermScore,
+          examScore,
           total,
           grade: gradeInfo.grade,
           remark: record.remark || gradeInfo.remark,
           competency: assessmentCompetency(schoolClass.level, total, record.competency),
-          teacherId: req.user.role === 'TEACHER' ? req.user.id : req.user.id
+          teacherId: req.user.id
         };
 
-        await tx.mark.upsert({
+        const existingMark = await tx.mark.findFirst({
           where: {
-            reportCardId_subjectId: {
-              reportCardId: card.id,
-              subjectId: data.subjectId
-            },
-            campusId: req.user.campusId
-          },
-          update: { ...payload, campusId: req.user.campusId },
-          create: {
-            ...payload,
             campusId: req.user.campusId,
             reportCardId: card.id,
             subjectId: data.subjectId
-          }
+          },
+          select: { id: true }
         });
+        if (existingMark) {
+          await tx.mark.update({ where: { id: existingMark.id }, data: payload });
+        } else {
+          await tx.mark.create({
+            data: {
+              id: randomUUID(),
+              ...payload,
+              reportCardId: card.id,
+              subjectId: data.subjectId
+            }
+          });
+        }
         saved += 1;
       }
     });

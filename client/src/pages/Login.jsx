@@ -5,12 +5,17 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { ErrorAlert } from '../components/Feedback.jsx';
 import { CAMPUSES } from '../utils/constants.js';
 
+const GLOBAL_DEMO = {
+  label: 'Super Admin (global)',
+  email: 'superadmin@lpareports.rw',
+  password: 'Admin@1234'
+};
+
 const DEMO_CAMPUSES = [
   {
     campusId: 'MAIN',
     name: 'LIGHT PEACE ACADEMY',
     accounts: [
-      { label: 'Super Admin', email: 'superadmin@lpareports.rw', password: 'Admin@1234' },
       { label: 'DOS', email: 'dos@lpareports.rw', password: 'Dos@12345' },
       { label: 'Head Teacher', email: 'head@lpareports.rw', password: 'Head@12345' },
       { label: 'Teacher', email: 'teacher@lpareports.rw', password: 'Teacher@123' }
@@ -20,7 +25,6 @@ const DEMO_CAMPUSES = [
     campusId: 'RULINDO',
     name: 'LIGHT PEACE ACADEMY RULINDO',
     accounts: [
-      { label: 'Super Admin', email: 'superadmin.rulindo@lpareports.rw', password: 'Admin@1234' },
       { label: 'DOS', email: 'dos.rulindo@lpareports.rw', password: 'Dos@12345' },
       { label: 'Head Teacher', email: 'head.rulindo@lpareports.rw', password: 'Head@12345' },
       { label: 'Teacher', email: 'teacher.rulindo@lpareports.rw', password: 'Teacher@123' }
@@ -73,7 +77,7 @@ export default function Login() {
           <p>
             A focused workspace for both Light Peace Academy campuses in Rwanda — Main and Rulindo.
             Teachers record scores, the Dean of Studies verifies performance, and the Head Teacher
-            issues approved reports.
+            reviews report cards before issue.
           </p>
           <div className="login-feature">
             <i className="bi bi-check-circle-fill" />
@@ -81,11 +85,11 @@ export default function Login() {
           </div>
           <div className="login-feature">
             <i className="bi bi-check-circle-fill" />
-            <span>Rwandan A–F grading bands with points and class position</span>
+            <span>Rwandan A–E/S/F grading bands with class position</span>
           </div>
           <div className="login-feature">
             <i className="bi bi-check-circle-fill" />
-            <span>Term III reports automatically include the annual cumulative summary</span>
+            <span>Mid-term, term and annual take-home report cards</span>
           </div>
           <div className="login-feature">
             <i className="bi bi-check-circle-fill" />
@@ -195,6 +199,32 @@ export default function Login() {
             <div className="mb-2">
               <strong>Demonstration accounts</strong> — click a role to fill the form and select its campus.
             </div>
+            <div className="demo-group">
+              <div className="demo-group-title">
+                <i className="bi bi-shield-lock me-1" />
+                GLOBAL — works with either campus
+              </div>
+              <div className="demo-grid">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm({
+                      campusId: 'MAIN',
+                      email: GLOBAL_DEMO.email,
+                      password: GLOBAL_DEMO.password
+                    })
+                  }
+                >
+                  <span className="demo-role">{GLOBAL_DEMO.label}</span>
+                  <span className="demo-cred">
+                    {GLOBAL_DEMO.email} / {GLOBAL_DEMO.password}
+                  </span>
+                </button>
+              </div>
+              <div className="text-muted-2 mt-1" style={{ fontSize: '0.68rem' }}>
+                Clicking sets MAIN; switch the campus selector to RULINDO to sign in there.
+              </div>
+            </div>
             {DEMO_CAMPUSES.map((group) => (
               <div className="demo-group" key={group.campusId}>
                 <div className="demo-group-title">
@@ -222,8 +252,8 @@ export default function Login() {
           </div>
 
           <p className="text-muted-2 mt-4 mb-0" style={{ fontSize: '0.72rem' }}>
-            Forgot your password? Contact the Super Admin to have it reset. Accounts are created by the
-            Super Admin only.
+            Forgot your password? Contact the Super Admin to have it reset. Accounts are issued by the
+            Super Admin or your campus Dean of Studies.
           </p>
         </div>
       </section>

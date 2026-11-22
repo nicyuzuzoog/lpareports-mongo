@@ -5,8 +5,8 @@ import { useToast } from '../components/Toast.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { EmptyState, ErrorAlert, Loading, Pagination } from '../components/Feedback.jsx';
-import { TERMS, YEAR_OPTIONS, currentYear } from '../utils/constants.js';
-import { classPosition, percent, termLabel } from '../utils/format.js';
+import { REPORT_TYPES, TERMS, YEAR_OPTIONS, currentYear } from '../utils/constants.js';
+import { classPosition, percent, reportTypeLabel, termLabel } from '../utils/format.js';
 
 export default function Approvals() {
   const { show: toast } = useToast();
@@ -14,7 +14,8 @@ export default function Approvals() {
   const [data, setData] = useState({ reports: [], pagination: null });
   const [filters, setFilters] = useState({
     classId: '',
-    term: 'TERM3',
+    type: '',
+    term: '',
     year: currentYear,
     status: 'SUBMITTED'
   });
@@ -33,11 +34,12 @@ export default function Approvals() {
     const params = new URLSearchParams({
       page: String(page),
       pageSize: '20',
-      term: filters.term,
       year: String(filters.year),
       status: filters.status
     });
     if (filters.classId) params.set('classId', filters.classId);
+    if (filters.type) params.set('type', filters.type);
+    if (filters.term) params.set('term', filters.term);
 
     api
       .get(`/reports?${params.toString()}`)
@@ -94,8 +96,18 @@ export default function Approvals() {
               </select>
             </div>
             <div className="form-group">
+              <label className="form-label">Type</label>
+              <select className="form-select" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}>
+                <option value="">All types</option>
+                {REPORT_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
               <label className="form-label">Term</label>
               <select className="form-select" value={filters.term} onChange={(event) => setFilter('term', event.target.value)}>
+                <option value="">All terms</option>
                 {TERMS.map((term) => (
                   <option key={term.value} value={term.value}>{term.label}</option>
                 ))}
@@ -141,6 +153,7 @@ export default function Approvals() {
                 <tr>
                   <th>Student</th>
                   <th>Class</th>
+                  <th>Type</th>
                   <th>Term</th>
                   <th>Average</th>
                   <th>Position</th>
@@ -156,7 +169,8 @@ export default function Approvals() {
                       <div className="mono">{report.student.code}</div>
                     </td>
                     <td>{report.className}</td>
-                    <td>{termLabel(report.term)} · {report.year}</td>
+                    <td>{report.typeLabel || reportTypeLabel(report.type)}</td>
+                    <td>{report.termLabel || termLabel(report.term)} · {report.year}</td>
                     <td className="fw-650">{percent(report.average)}</td>
                     <td className="fw-650">{classPosition(report.position, report.outOf)}</td>
                     <td><StatusBadge status={report.status} /></td>

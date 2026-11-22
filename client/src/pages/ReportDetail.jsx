@@ -7,7 +7,16 @@ import Modal from '../components/Modal.jsx';
 import ReportCardView from '../components/ReportCardView.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { ErrorAlert, Loading } from '../components/Feedback.jsx';
-import { classPosition, formatDateTime, gradeFromScale, levelLabel, termLabel } from '../utils/format.js';
+import {
+  classPosition,
+  computePreviewTotal,
+  levelLabel,
+  percent,
+  reportTypeLabel,
+  termLabel
+} from '../utils/format.js';
+
+const numberOrNull = (value) => (value === '' || value === null || value === undefined ? null : Number(value));
 
 export default function ReportDetail() {
   const { id } = useParams();
@@ -18,10 +27,10 @@ export default function ReportDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [gradesOpen, setGradesOpen] = useState(false);
-  const [details, setDetails] = useState({});
   const [grades, setGrades] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [weights, setWeights] = useState({ coursework: 40, exam: 60 });
 
   const isManager = ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'].includes(user.role);
   const canDelete = user.role === 'SUPER_ADMIN' || user.canDelete;
@@ -44,6 +53,23 @@ export default function ReportDetail() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    Promise.all([api.get('/settings'), api.get('/subjects')])
+      .then(([settingsData, subjectData]) => {
+        if (!active) return;
+        setWeights({
+          coursework: Number(settingsData.settings?.courseworkWeight) || 40,
+          exam: Number(settingsData.settings?.examWeight) || 60
+        });
+        setSubjects(subjectData.subjects || []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const runAction = async (key, action, successMessage) => {
     setBusy(key);
     try {
@@ -57,43 +83,29 @@ export default function ReportDetail() {
     }
   };
 
-  const openDetails = () => {
-    setDetails({
-      teacherComment: report.comments?.teacher || '',
-      dosComment: report.comments?.dos || '',
-      headComment: report.comments?.headTeacher || ''
-    });
-    setDetailsOpen(true);
-  };
-
-  const saveDetails = async (event) => {
-    event.preventDefault();
-    setBusy('details');
-    try {
-      await api.patch(`/reports/${id}`, {
-        teacherComment: details.teacherComment || null,
-        ...(isManager ? { dosComment: details.dosComment || null } : {}),
-        ...(['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role) ? { headComment: details.headComment || null } : {})
-      });
-      toast('Report details saved.');
-      setDetailsOpen(false);
-      await load();
-    } catch (err) {
-      toast(err.message, 'danger');
-    } finally {
-      setBusy(null);
-    }
+  const caScoreFor = (mark) => {
+    if (mark.caScore !== null && mark.caScore !== undefined && mark.caScore !== '') return mark.caScore;
+    const total = numberOrNull(mark.total);
+    const exam = numberOrNull(mark.examScore);
+    if (total === null || exam === null || !weights.coursework) return '';
+    const value =
+      (total * (weights.coursework + weights.exam) - exam * weights.exam) / weights.coursework;
+    if (!Number.isFinite(value)) return '';
+    return Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
   };
 
   const openGrades = () => {
     setGrades(
-      report.marks.map((mark) => ({
-        subjectId: mark.subjectId,
+      (report.marks || []).map((mark) => ({
+        subjectId:
+          mark.subjectId ||
+          subjects.find((item) => item.name === mark.subject)?.id ||
+          '',
         subject: mark.subject,
-        caScore: mark.caScore ?? '',
+        midtermScore: mark.midtermScore ?? '',
+        caScore: caScoreFor(mark),
         examScore: mark.examScore ?? '',
-        competency: mark.competency || '',
-        remark: mark.remark || ''
+        grade: mark.grade || '—'
       }))
     );
     setGradesOpen(true);
@@ -101,17 +113,19 @@ export default function ReportDetail() {
 
   const saveGrades = async (event) => {
     event.preventDefault();
+    const payloadMarks = grades.map((mark) => ({
+      subjectId: mark.subjectId,
+      midtermScore: numberOrNull(mark.midtermScore),
+      caScore: numberOrNull(mark.caScore),
+      examScore: numberOrNull(mark.examScore)
+    }));
+    if (payloadMarks.some((mark) => !mark.subjectId)) {
+      toast('Some subjects could not be matched to the subject list.', 'danger');
+      return;
+    }
     setBusy('grades');
     try {
-      await api.patch(`/reports/${id}/marks`, {
-        marks: grades.map((mark) => ({
-          subjectId: mark.subjectId,
-          caScore: mark.caScore === '' ? null : mark.caScore,
-          examScore: mark.examScore === '' ? null : mark.examScore,
-          competency: mark.competency || null,
-          remark: mark.remark || null
-        }))
-      });
+      await api.patch(`/reports/${id}/marks`, { marks: payloadMarks });
       toast('Grades updated.');
       setGradesOpen(false);
       await load();
@@ -151,8 +165,14 @@ export default function ReportDetail() {
   if (error) return <ErrorAlert error={error} onRetry={load} />;
   if (!report) return null;
 
-  const weights = report.weights || { coursework: 40, exam: 60 };
-  const scale = report.gradingScale || [];
+  const isAnnual = report.type === 'ANNUAL';
+  const typeName = report.typeLabel || reportTypeLabel(report.type);
+  const session = report.termLabel || termLabel(report.term);
+  const average = isAnnual ? report.annual?.overallAverage : report.summary?.average;
+  const position = isAnnual ? report.annual?.overallPosition : report.summary?.position;
+  const outOf = isAnnual ? report.annual?.overallOutOf : report.summary?.outOf;
+  const previewTotal = (mark) =>
+    computePreviewTotal(mark.caScore, mark.examScore, weights.coursework, weights.exam);
 
   return (
     <>
@@ -163,9 +183,10 @@ export default function ReportDetail() {
             Back to report cards
           </Link>
           <div className="mt-2">
-            <h1 className="mb-0" style={{ fontSize: '1.35rem' }}>{report.student.fullName}</h1>
+            <h1 className="mb-0" style={{ fontSize: '1.35rem' }}>{report.student.name}</h1>
             <div className="text-muted-2" style={{ fontSize: '0.8rem' }}>
-              {report.student.code} · {report.className} ({levelLabel(report.level)}) · {termLabel(report.term)} {report.year}
+              {report.student.code} · {report.className} ({levelLabel(report.level)}) · {typeName}
+              {isAnnual ? ` ${report.year}` : ` · ${session} ${report.year}`}
             </div>
           </div>
         </div>
@@ -178,10 +199,6 @@ export default function ReportDetail() {
           <button type="button" className="btn btn-outline-brand" onClick={downloadPdf} disabled={busy === 'download'}>
             {busy === 'download' ? <span className="spinner-border spinner-border-sm me-2" /> : <i className="bi bi-file-earmark-pdf me-2" />}
             PDF
-          </button>
-          <button type="button" className="btn btn-outline-brand" onClick={openDetails}>
-            <i className="bi bi-pencil-square me-2" />
-            Edit details
           </button>
           {canEditGrades ? (
             <button type="button" className="btn btn-outline-brand" onClick={openGrades}>
@@ -217,12 +234,8 @@ export default function ReportDetail() {
               className="btn btn-outline-brand"
               disabled={busy === 'reopen'}
               onClick={() => {
-                const comment = window.prompt('Reason for returning this report to draft (optional):') ?? '';
-                runAction(
-                  'reopen',
-                  () => api.post(`/reports/${id}/reopen`, { comment }),
-                  'Report returned to draft.'
-                );
+                if (!window.confirm('Return this report to draft?')) return;
+                runAction('reopen', () => api.post(`/reports/${id}/reopen`), 'Report returned to draft.');
               }}
             >
               <i className="bi bi-arrow-counterclockwise me-2" />
@@ -240,95 +253,24 @@ export default function ReportDetail() {
 
       <div className="d-flex flex-wrap align-items-center gap-2 mb-3 report-actions">
         <StatusBadge status={report.status} />
-        {report.submitted ? (
+        <span className="term-pill"><i className="bi bi-file-earmark-text" /> {typeName} report</span>
+        <span className="term-pill"><i className="bi bi-graph-up" /> Average {percent(average)}</span>
+        {position ? (
           <span className="term-pill">
-            <i className="bi bi-send" /> Submitted by {report.submitted.by} · {formatDateTime(report.submitted.at)}
-          </span>
-        ) : null}
-        {report.approved ? (
-          <span className="term-pill">
-            <i className="bi bi-patch-check" /> Approved by {report.approved.by} · {formatDateTime(report.approved.at)}
-          </span>
-        ) : null}
-        {report.summary?.position ? (
-          <span className="term-pill">
-            <i className="bi bi-trophy" /> Position{' '}
-            {classPosition(report.summary.position, report.summary.outOf)}
+            <i className="bi bi-trophy" /> Position {classPosition(position, outOf)}
           </span>
         ) : null}
       </div>
-
-      {report.status !== 'APPROVED' ? (
-        <div className="alert alert-info report-actions">
-          <i className="bi bi-info-circle me-1" />
-          This report is <strong>{report.status === 'SUBMITTED' ? 'awaiting approval' : 'still a draft'}</strong>.
-          {report.status === 'SUBMITTED' ? ' The DOS or Head Teacher should verify the scores before approving.' : ' Record all scores, then submit it for verification.'}
-        </div>
-      ) : null}
 
       <div className="report-wrap">
         <ReportCardView report={report} />
       </div>
 
       <Modal
-        show={detailsOpen}
-        onClose={() => setDetailsOpen(false)}
-        title="Edit report details"
-        subtitle={`${report.student.fullName} · ${termLabel(report.term)} ${report.year}`}
-        footer={
-          <>
-            <button type="button" className="btn btn-outline-brand" onClick={() => setDetailsOpen(false)} disabled={busy === 'details'}>
-              Cancel
-            </button>
-            <button type="submit" form="details-form" className="btn btn-brand" disabled={busy === 'details'}>
-              {busy === 'details' ? <span className="spinner-border spinner-border-sm me-2" /> : null}
-              Save details
-            </button>
-          </>
-        }
-      >
-        <form id="details-form" onSubmit={saveDetails}>
-          <div className="row g-3">
-            <div className="col-12">
-              <label className="form-label">Class teacher's comment</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={details.teacherComment}
-                onChange={(event) => setDetails((prev) => ({ ...prev, teacherComment: event.target.value }))}
-              />
-            </div>
-            {isManager ? (
-              <div className="col-12">
-                <label className="form-label">Dean of Studies' comment</label>
-                <textarea
-                  className="form-control"
-                  rows="2"
-                  value={details.dosComment}
-                  onChange={(event) => setDetails((prev) => ({ ...prev, dosComment: event.target.value }))}
-                />
-              </div>
-            ) : null}
-            {['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role) ? (
-              <div className="col-12">
-                <label className="form-label">Head Teacher's comment</label>
-                <textarea
-                  className="form-control"
-                  rows="2"
-                  value={details.headComment}
-                  onChange={(event) => setDetails((prev) => ({ ...prev, headComment: event.target.value }))}
-                />
-              </div>
-            ) : null}
-          </div>
-        </form>
-      </Modal>
-
-      <Modal
         show={gradesOpen}
         onClose={() => setGradesOpen(false)}
         title="Edit grades"
-        subtitle="Changes are recorded in the audit trail."
+        subtitle="Mid-term scores are recorded but are not included in the weighted total."
         size="xl"
         footer={
           <>
@@ -348,75 +290,63 @@ export default function ReportDetail() {
               <thead>
                 <tr>
                   <th>Subject</th>
+                  <th style={{ width: 110 }}>Mid-term</th>
                   <th style={{ width: 100 }}>C/W</th>
                   <th style={{ width: 100 }}>Exam</th>
                   <th style={{ width: 80 }}>Total</th>
                   <th style={{ width: 70 }}>Grade</th>
-                  {report.level !== 'UPPER_PRIMARY' ? <th style={{ width: 180 }}>Competency</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {grades.map((mark, index) => {
-                  const ca = mark.caScore === '' ? null : Number(mark.caScore);
-                  const exam = mark.examScore === '' ? null : Number(mark.examScore);
-                  const total =
-                    ca === null && exam === null
-                      ? null
-                      : Math.round(
-                          (((ca ?? 0) * weights.coursework + (exam ?? 0) * weights.exam) /
-                            (weights.coursework + weights.exam || 100)) *
-                            10
-                        ) / 10;
-                  return (
-                    <tr key={mark.subjectId}>
-                      <td className="fw-650">{mark.subject}</td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          className="form-control form-control-sm score-input"
-                          value={mark.caScore}
-                          onChange={(event) =>
-                            setGrades((prev) =>
-                              prev.map((item, i) => (i === index ? { ...item, caScore: event.target.value } : item))
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          className="form-control form-control-sm score-input"
-                          value={mark.examScore}
-                          onChange={(event) =>
-                            setGrades((prev) =>
-                              prev.map((item, i) => (i === index ? { ...item, examScore: event.target.value } : item))
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="total-cell">{total ?? '—'}</td>
-                      <td className="fw-650">{gradeFromScale(total, scale)}</td>
-                      {report.level !== 'UPPER_PRIMARY' ? (
-                        <td>
-                          <input
-                            className="form-control form-control-sm"
-                            value={mark.competency}
-                            placeholder="Auto from score"
-                            onChange={(event) =>
-                              setGrades((prev) =>
-                                prev.map((item, i) => (i === index ? { ...item, competency: event.target.value } : item))
-                              )
-                            }
-                          />
-                        </td>
-                      ) : null}
-                    </tr>
-                  );
-                })}
+                {grades.map((mark, index) => (
+                  <tr key={mark.subjectId}>
+                    <td className="fw-650">{mark.subject}</td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        className="form-control form-control-sm score-input"
+                        value={mark.midtermScore}
+                        onChange={(event) =>
+                          setGrades((prev) =>
+                            prev.map((item, i) => (i === index ? { ...item, midtermScore: event.target.value } : item))
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        className="form-control form-control-sm score-input"
+                        value={mark.caScore}
+                        onChange={(event) =>
+                          setGrades((prev) =>
+                            prev.map((item, i) => (i === index ? { ...item, caScore: event.target.value } : item))
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        className="form-control form-control-sm score-input"
+                        value={mark.examScore}
+                        onChange={(event) =>
+                          setGrades((prev) =>
+                            prev.map((item, i) => (i === index ? { ...item, examScore: event.target.value } : item))
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="total-cell">{previewTotal(mark) ?? '—'}</td>
+                    <td className="fw-650">{mark.grade}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

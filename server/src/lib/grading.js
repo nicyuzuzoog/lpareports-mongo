@@ -7,7 +7,21 @@ export const LEVEL_LABELS = {
 export const TERM_LABELS = {
   TERM1: 'Term I',
   TERM2: 'Term II',
-  TERM3: 'Term III'
+  TERM3: 'Term III',
+  ANNUAL: 'Annual'
+};
+
+/** Report card types. ANNUAL cards use term 'ANNUAL'. */
+export const REPORT_TYPES = {
+  MIDTERM: 'MIDTERM',
+  TERM: 'TERM',
+  ANNUAL: 'ANNUAL'
+};
+
+export const REPORT_TYPE_LABELS = {
+  MIDTERM: 'Mid-Term Test',
+  TERM: 'Term',
+  ANNUAL: 'Annual'
 };
 
 export const ROLE_LABELS = {
@@ -142,6 +156,24 @@ export function ordinal(position) {
 
 export function termLabel(term) {
   return TERM_LABELS[term] || term;
+}
+
+export function reportTypeLabel(type) {
+  return REPORT_TYPE_LABELS[type] || type;
+}
+
+/**
+ * The score used for summaries/ranking on a given report type.
+ * Mid-term test reports use the separately stored midtermScore; every other
+ * type uses the weighted `total` (coursework + exam only).
+ */
+export function effectiveScoreFor(mark, type = 'TERM') {
+  if (type === REPORT_TYPES.MIDTERM) {
+    const value = mark?.midtermScore;
+    return value === null || value === undefined || value === '' ? null : Number(value);
+  }
+  const value = mark?.total;
+  return value === null || value === undefined || value === '' ? null : Number(value);
 }
 
 export function assessmentCompetency(level, score, provided) {

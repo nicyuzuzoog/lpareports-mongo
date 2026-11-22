@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { publicStudent } from '../lib/serialize.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
-import { getSettings } from '../lib/settings.js';
-import { positionsFor } from '../services/reportService.js';
+import { getSettings, getSystemSettings, RegistrationClosedError } from '../lib/settings.js';
+import { positionsFor, summariseMarks } from '../services/reportService.js';
+import { reportTypeLabel } from '../lib/grading.js';
 import {
   authenticate,
   allowedClassIds,
@@ -128,12 +130,20 @@ router.get(
 
     const settings = await getSettings(req.user.campusId);
     const positionsCache = new Map();
+    const cardTypeName = (card) => card.type || 'TERM';
     const getPositions = async (card) => {
-      const key = `${card.classId}|${card.term}|${card.year}`;
+      const key = `${card.classId}|${card.term}|${card.year}|${cardTypeName(card)}`;
       if (!positionsCache.has(key)) {
         positionsCache.set(
           key,
-          positionsFor(req.user.campusId, card.classId, card.term, card.year, settings)
+          positionsFor(
+            req.user.campusId,
+            card.classId,
+            card.term,
+            card.year,
+            settings,
+            cardTypeName(card)
+          )
         );
       }
       return positionsCache.get(key);
@@ -141,28 +151,34 @@ router.get(
 
     const reportCards = await Promise.all(
       student.reportCards.map(async (card) => {
-        const assessed = card.marks.filter((mark) => mark.total !== null);
-        const average =
-          assessed.length > 0
-            ? Math.round(
-                (assessed.reduce((sum, mark) => sum + Number(mark.total || 0), 0) / assessed.length) *
-                  10
-              ) / 10
-            : null;
+        const type = cardTypeName(card);
+        const summary = summariseMarks(
+          card.marks,
+          card.class?.level || 'LOWER_PRIMARY',
+          settings,
+          type
+        );
         const { positions, outOf } = await getPositions(card);
         return {
           id: card.id,
           term: card.term,
           year: card.year,
-          className: card.class.name,
+          type,
+          typeLabel: reportTypeLabel(type),
+          className: card.class?.name,
           status: card.status,
-          subjects: card.marks.length,
-          average,
+          subjects: summary.subjectsAssessed,
+          average: summary.average,
           position: positions.get(card.id) || null,
           outOf
         };
       })
     );
+    // Highest scorer first; unranked cards last.
+    reportCards.sort((a, b) => {
+      const rank = (item) => (item.position === null ? Number.MAX_SAFE_INTEGER : item.position);
+      return rank(a) - rank(b) || String(a.term).localeCompare(String(b.term));
+    });
 
     res.json({
       student: {
@@ -176,8 +192,22 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
+    const systemSettings = await getSystemSettings();
+    if (!systemSettings?.studentRegistrationEnabled) {
+      const error = new RegistrationClosedError();
+      error.status = error.status || 403;
+      throw error;
+    }
+
     const data = createSchema.parse(req.body);
-    await assertClassAccess(req.user, data.classId);
+    // A teacher who is a class teacher may only register into their own class.
+    // Any supplied classId is intentionally overridden (not rejected).
+    const forcedClassId =
+      req.user.role === 'TEACHER' && req.user.classTeacherClassId
+        ? req.user.classTeacherClassId
+        : null;
+    const classId = forcedClassId || data.classId;
+    await assertClassAccess(req.user, classId);
 
     let code = data.code
       ? data.code.trim().toUpperCase()
@@ -189,6 +219,7 @@ router.post(
 
     const student = await prisma.student.create({
       data: {
+        id: randomUUID(),
         campusId: req.user.campusId,
         code,
         firstName: data.firstName,
@@ -199,7 +230,7 @@ router.post(
         guardianName: data.guardianName || null,
         guardianPhone: data.guardianPhone || null,
         address: data.address || null,
-        classId: data.classId,
+        classId,
         isActive: data.isActive ?? true,
         createdById: req.user.id
       },

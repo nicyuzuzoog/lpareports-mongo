@@ -5,42 +5,65 @@ A full-stack school report-card and assessment system for **Nursery**, **Lower P
 - **MAIN — LIGHT PEACE ACADEMY**
 - **RULINDO — LIGHT PEACE ACADEMY RULINDO**
 
-- **API:** Node.js, Express 4, Mongoose 8, **MongoDB Atlas**
+- **API:** Node.js, Express 4, Prisma 6, **MySQL**
 - **Web app:** React 19, Vite 7, Bootstrap 5, Bootstrap Icons
-- **PDF:** server-side PDFKit report cards (single + bulk ZIP)
-- **Deploy:** API on Render (`lpareports-api`), MongoDB on Atlas, frontend on Vercel
+- **PDF:** server-side PDFKit report cards (single + bulk ZIP), one A4 page each
+- **Deploy:** API on Render, MySQL in cPanel, frontend on Vercel
 
-No gradients are used in the interface; the design is flat, clean and professional. Report cards follow a standard Rwandan primary report format with class position and grade points.
+The interface is flat, clean and professional. Report cards follow a standard Rwandan primary layout and are designed to be printed and sent home with the learner.
 
 ---
 
 ## 1. Features
 
-### Roles
+### Accounts and campuses
 
-| Capability | Super Admin | Head Teacher | DOS | Teacher |
+- The **Super Admin is a single global account** (`superadmin@lpareports.rw`). On the login screen, choose either campus — the same account opens that campus's data.
+- Everyone else (DOS, Head Teacher, Teacher) belongs to one campus only. All students, classes, subjects, marks, reports, settings and audit entries are strictly campus-scoped.
+- Demo credentials ( seeded by `npm run db:setup` ):
+
+  | Campus | Role | Email | Password |
+  | --- | --- | --- | --- |
+  | Either | Super Admin (global) | `superadmin@lpareports.rw` | `Admin@1234` |
+  | MAIN | DOS | `dos@lpareports.rw` | `Dos@12345` |
+  | MAIN | Head Teacher | `head@lpareports.rw` | `Head@12345` |
+  | MAIN | Teacher | `teacher@lpareports.rw` | `Teacher@123` |
+  | RULINDO | DOS | `dos.rulindo@lpareports.rw` | `Dos@12345` |
+  | RULINDO | Head Teacher | `head.rulindo@lpareports.rw` | `Head@12345` |
+  | RULINDO | Teacher | `teacher.rulindo@lpareports.rw` | `Teacher@123` |
+
+  Additional demo teachers `teacher2`, `teacher3`, `teacher4` exist on both campuses with `Teacher@123`.
+
+### Role rules
+
+| Capability | Super Admin | DOS | Head Teacher | Teacher |
 | --- | :-: | :-: | :-: | :-: |
-| View dashboard, students, reports | ✓ | ✓ | ✓ | assigned classes |
-| Enter assessments | ✓ | ✓ | ✓ | assigned classes/subjects |
+| Manage classes, subjects and teachers | ✓ | ✓ | — | — |
+| Add DOS / Head Teacher accounts | ✓ | — | — | — |
+| Edit grading benchmarks / school settings | ✓ | ✓ | — | — |
+| Global student-registration on/off switch | ✓ | — | — | — |
+| Register students | ✓ | ✓ | ✓ | ✓ (own class only, if assigned) |
+| Enter assessments and mid-term scores | ✓ | ✓ | ✓ | assigned classes/subjects |
 | Generate report cards | ✓ | ✓ | ✓ | assigned classes |
-| Edit grades / details | ✓ | ✓ | ✓ | — |
 | Approve / reopen reports | ✓ | ✓ | ✓ | — |
-| Performance analytics | all sections | all sections | Primary sections | — |
-| Configure low-performance criteria | ✓ | ✓ | ✓ | — |
-| Download all report cards | ✓ | ✓ | scoped | scoped |
-| Create/manage users | ✓ | — | — | — |
-| Classes & subjects | ✓ | view | view | view |
 | Audit trail | ✓ | — | — | — |
-| Grant delete permission | ✓ | — | — | — |
-| Delete records | ✓ | only if granted | only if granted | only if granted |
+| Grant delete permission / delete records | ✓ | only if granted | only if granted | only if granted |
 
-Accounts are **campus-scoped**. The login screen requires the user to choose a campus before signing in, and each user can only see the students, classes and reports for that campus.
+- When a teacher is created, an optional **“Class Teacher Of”** class can be selected. That teacher then registers learners only into that class. Teachers without an assigned class may register into any class in their campus.
+- **Student registration can be switched off globally** by the Super Admin in Settings. When off, nobody can add a learner and the UI shows a clear banner.
 
 ### Report cards
 
-- One report card per student, term and year, identified by the student's unique code (auto-generated as `LPA-YYYY-NNN` or entered manually).
-- Coursework (CA) and exam are each scored out of 100 and combined using configurable weights (default **40% CA / 60% exam**).
-- Rwandan grading bands are computed automatically with grade points (higher points are better):
+There are three report types, one report per learner per period:
+
+| Type | Term field | Contents |
+| --- | --- | --- |
+| **Mid-term test report** | TERM1 / TERM2 / TERM3 | Brief report: subject, mid-term score, grade, average, position |
+| **Full term report** | TERM1 / TERM2 / TERM3 | Subject, mid-term score, end-of-term exam score, total, grade, average, position |
+| **Annual report** | ANNUAL | Compact summary of all three term reports: per-term average, grade and position, plus the annual average, grade and position |
+
+- Mid-term marks are shown **separately** and are **not** included in the total. The term total is `coursework × 40% + exam × 60%` by default.
+- Grading uses the Rwanda Ministry of Education / NESA primary bands (higher points are better):
 
   | Grade | Marks | Points | Remark |
   | --- | :-: | :-: | --- |
@@ -52,19 +75,17 @@ Accounts are **campus-scoped**. The login screen requires the user to choose a c
   | S | 20–39 | 1 | Fair |
   | F | 0–19 | 0 | Fail |
 
-- Each subject row shows **No. / Subject / CA / Exam / Total / Grade / Points / Remark**.
-- Class position (`position` / `outOf`) is shown on the report and in all report lists.
-- Term III includes a cumulative summary of Terms I, II and III for every subject, plus the overall average, grade and position.
-- Print-ready A4 layout in the browser and downloadable PDF with the campus name, Rwandan contact details and signatories (Class Teacher, Head Teacher, Parent/Guardian).
-- Bulk download as a ZIP of PDFs; Head Teacher and Super Admin can download across the whole campus.
+- **Position is strict 1..N** (no shared ranks), computed per campus/class/term/year/type by average, then total marks, then student code.
+- Approved and generated reports are listed **by rank — highest scorer first**.
+- Every report is **exactly one A4 page**. The take-home copy contains only: school header, learner details, the subject/term table, average, position and two signature lines (**Class Teacher** and **Head Teacher**).
+- Deliberately **not** printed on the take-home report: comments, submitter/approver names, submission or approval dates, guardian contact details, grading-key/benchmark table, points/aggregate column, attendance, and page numbers.
+- Bulk download as a ZIP of single-page PDFs is available for Head Teacher and Super Admin.
 
 ### Administration
 
-- Teacher accounts must be assigned **classes taught** and **subjects taught**. Teachers can only record marks for those assignments.
-- **Append-only audit trail** records logins, creates, updates, deletes, submissions, approvals, downloads and seeding, with before/after snapshots.
-- Super Admin can grant or revoke delete permission per user.
-- School profile, grading scales, assessment weights, pass mark and low-performance criteria are configurable in **Settings**.
-- Dashboard, class analytics, progression analytics and low-performer lists.
+- Append-only audit trail for logins, creates, updates, deletes, submissions, approvals, downloads and seeding.
+- School profile, grading scales, assessment weights, pass mark and low-performance criteria are configurable in Settings.
+- Dashboard, class analytics, progression analytics and low-performer lists are all campus-scoped.
 
 ---
 
@@ -73,33 +94,32 @@ Accounts are **campus-scoped**. The login screen requires the user to choose a c
 ```
 lpareports/
 ├── client/                  React + Vite frontend
-│   ├── public/logo.jpeg
-│   ├── src/
-│   │   ├── api/             fetch wrapper + downloads (lpareports_token)
-│   │   ├── components/      layout, modal, report card, feedback
-│   │   ├── context/         auth (login with campusId)
-│   │   ├── pages/           dashboard, students, assessments, reports,
-│   │   │                    approvals, analytics, classes, subjects,
-│   │   │                    users, audit, settings, profile
-│   │   ├── styles/app.css
-│   │   └── utils/
-│   └── vercel.json
+│   └── src/
+│       ├── api/             fetch wrapper + downloads (lpareports_token)
+│       ├── components/      layout, modal, single-page report card, feedback
+│       ├── context/         auth (campusId + global super admin)
+│       ├── pages/           dashboard, students, assessments, reports,
+│       │                    approvals, analytics, classes, subjects,
+│       │                    users, audit, settings, profile
+│       ├── styles/app.css   flat design + one-page print rules
+│       └── utils/
 ├── server/                  Express API
-│   ├── prisma/seed.js       demo data seed script (legacy folder name)
+│   ├── prisma/
+│   │   ├── schema.prisma    MySQL data model
+│   │   └── seed.js          idempotent two-campus seed
 │   └── src/
 │       ├── assets/logo.jpeg
-│       ├── config/          environment
-│       ├── lib/             mongo repository facade, jwt, audit, grading, PDF
+│       ├── config/          environment (DATABASE_URL)
+│       ├── lib/             Prisma facade, settings, jwt, audit, grading, PDF
 │       ├── middleware/      auth + role guards
-│       ├── models/          Mongoose schemas + indexes
 │       ├── routes/          auth, users, classes, subjects, students,
-│       │                    assessments, reports, analytics,
-│       │                    dashboard, audit, settings
-│       ├── services/        report computation
+│       │                    assessments, reports, analytics, dashboard,
+│       │                    audit, settings, system-settings
+│       ├── services/        report computation and ranking
 │       ├── app.js
 │       └── index.js
-├── docker-compose.yml       local MongoDB (lpareports-db)
-├── render.yaml              Render blueprint (lpareports-api; DB is on Atlas)
+├── docker-compose.yml       local MySQL 8 for development
+├── render.yaml              Render blueprint (lpareports-api)
 └── package.json             root convenience scripts
 ```
 
@@ -110,209 +130,80 @@ lpareports/
 ### Requirements
 
 - Node.js **20+** (tested on Node 24)
-- A MongoDB Atlas cluster, or Docker for the bundled local MongoDB
+- A MySQL 8 database (cPanel-hosted or local via `docker compose up -d`)
 
 ### Steps
 
 ```bash
-# 1. Install all dependencies
+# 1. Install all dependencies (also generates the Prisma client)
 npm run install:all
-npm install
 
-# 2. Start MongoDB locally (or skip and use Atlas)
-docker compose up -d
+# 2. Create server/.env from the example and set DATABASE_URL
+cp server/.env.example server/.env
+#   DATABASE_URL="mysql://USER:PASSWORD@HOST:3306/DATABASE_NAME"
 
-# 3. Configure the API
-cd server
-copy .env.example .env      # Windows
-# cp .env.example .env      # macOS / Linux
-# Set MONGODB_URI to your Atlas URI, or
-# mongodb://localhost:27017/lpareports for the local container
+# 3. Create the tables and load the demo data (idempotent)
+npm run db:setup
 
-# 4. Create the demo data
-npm run db:seed
-
-# 5. Run API and frontend together from the project root
-cd ..
+# 4. Start the API and web app
 npm run dev
 ```
 
-- Web app: <http://localhost:5173>
-- API: <http://localhost:5000/api/health>
+Useful scripts:
 
-The Mongoose schemas create their indexes automatically at startup; no migration step is required.
+| Command | Purpose |
+| --- | --- |
+| `npm run db:generate` | Regenerate the Prisma client after editing `schema.prisma` |
+| `npm run db:push` | Create/update tables from the schema (no migration files) |
+| `npm run db:seed` | Re-seed demo data only (safe to run repeatedly) |
+| `npm run db:setup` | `db:push` + `db:seed` |
 
-### Environment variables (`server/.env`)
+> **MySQL host note:** the host given by cPanel may be `localhost`. That works only when the app runs **on the same hosting server**. If the API runs elsewhere (e.g. Render), replace `localhost` with the public hostname/IP of the MySQL server and enable remote MySQL access in cPanel.
 
-| Variable | Required | Description |
-| --- | :-: | --- |
-| `MONGODB_URI` | ✓ | MongoDB Atlas connection string, including database name `lpareports` (`MONGO_URI` and `DATABASE_URL` are accepted aliases) |
-| `JWT_SECRET` | ✓ in production | Long random signing secret |
-| `JWT_EXPIRES_IN` | — | Token lifetime, default `12h` |
-| `CLIENT_ORIGINS` | ✓ in production | Comma-separated allowed frontend origins |
-| `PORT` | — | API port, default `5000` |
-| `NODE_ENV` | — | `development` or `production` |
-| `TRUST_PROXY` | — | Default `true`; set `false` if not behind a proxy |
-| `ALLOW_VERCEL_PREVIEWS` | — | Default `true`; allow `*.vercel.app` origins |
-| `SCHOOL_LOGO_URL` | — | Optional external logo URL (bundled logo is the default) |
+### Configuration (`server/.env`)
 
-Frontend: `VITE_API_URL` — public API base URL including `/api`. Leave unset in development to use the Vite proxy. The campus selector posts `campusId` (`MAIN` or `RULINDO`) with every login; the API returns it on `/auth/me`.
-
----
-
-## 4. Default demo accounts
-
-Run `npm run db:seed` once, choose the matching campus on the login screen, then sign in with:
-
-### MAIN — LIGHT PEACE ACADEMY
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Super Admin | `superadmin@lpareports.rw` | `Admin@1234` |
-| Dean of Studies | `dos@lpareports.rw` | `Dos@12345` |
-| Head Teacher | `head@lpareports.rw` | `Head@12345` |
-| Teacher | `teacher@lpareports.rw` | `Teacher@123` |
-
-### RULINDO — LIGHT PEACE ACADEMY RULINDO
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Super Admin | `superadmin.rulindo@lpareports.rw` | `Admin@1234` |
-| Dean of Studies | `dos.rulindo@lpareports.rw` | `Dos@12345` |
-| Head Teacher | `head.rulindo@lpareports.rw` | `Head@12345` |
-| Teacher | `teacher.rulindo@lpareports.rw` | `Teacher@123` |
-
-**Change these passwords after the first deployment.**
-
-The seed creates classes, Nursery/Lower/Upper Primary subjects, students and demo report cards with marks for each campus across Terms I–III (Term III includes the cumulative page). Seeding is idempotent: it can be re-run without creating duplicate students or reports.
-
----
-
-## 5. Deployment
-
-Repository: `https://github.com/nicyuzuzoog/report.git`
-
-### 5.1 MongoDB Atlas
-
-1. Create a free Atlas cluster (M0) in a region near your Render service (e.g. AWS Oregon).
-2. **Database Access:** create a database user with read/write access to `lpareports`.
-3. **Network Access:** allow `0.0.0.0/0` so Render can connect (Atlas's free tier has no Render-specific integration), or add Render's outbound IPs if you have them.
-4. Get the connection string (**Connect → Drivers → Node.js**) and make sure it includes the database name:
-   ```
-   mongodb+srv://USER:PASSWORD@cluster.mongodb.net/lpareports?retryWrites=true&w=majority
-   ```
-5. Use this as `MONGODB_URI` locally and on Render.
-
-### 5.2 API on Render
-
-1. Push this repository to GitHub (`nicyuzuzoog/report.git`).
-2. In Render choose **New → Blueprint** and select the repository. `render.yaml` creates the `lpareports-api` web service.
-3. When prompted, set:
-   - `MONGODB_URI` — the Atlas connection string from above
-   - `CLIENT_ORIGINS` — your Vercel URL (can be a placeholder until Vercel is deployed)
-4. Deploy. The build is just `npm install`; the API builds its own indexes on boot.
-5. Seed the Atlas database once from **Render → lpareports-api → Shell**:
-   ```bash
-   npm run db:seed
-   ```
-
-Manual setup (without the blueprint):
-
-- Root directory: `server`
-- Build command: `npm install`
-- Start command: `npm start`
-- Health check: `/api/health`
-
-### 5.3 Frontend on Vercel
-
-1. Import the repository in Vercel.
-2. Set **Root Directory** to `client`.
-3. Framework preset: **Vite** (build `npm run build`, output `dist`).
-4. Add environment variable:
-   ```
-   VITE_API_URL = https://lpareports-api.onrender.com/api
-   ```
-5. Deploy. `client/vercel.json` already adds the SPA rewrite for React Router.
-
-> Vercel preview URLs (`*.vercel.app`) are accepted by CORS by default. Set `ALLOW_VERCEL_PREVIEWS=false` to restrict to explicit origins.
-
----
-
-## 6. API overview
-
-All endpoints are under `/api` and require `Authorization: Bearer <token>` except `/auth/login` and `/health`.
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| POST | `/auth/login` | Sign in with `{ email, password, campusId }` (`campusId`: `MAIN` or `RULINDO`; `campus` is also accepted) |
-| GET | `/auth/me` | Current account, including `campusId` |
-| POST | `/auth/change-password` | Change own password |
-| GET/POST/PATCH/DELETE | `/users` | User management (Super Admin) |
-| PATCH | `/users/:id/permissions` | Grant/revoke delete permission |
-| GET | `/classes` | Scoped class list |
-| POST/PATCH/DELETE | `/classes` | Class management (Super Admin) |
-| GET/POST/PATCH/DELETE | `/subjects` | Subject management |
-| GET/POST/PATCH/DELETE | `/students` | Students (campus/class-scoped) |
-| GET | `/assessments` | Assessment sheet for class/term/subject |
-| POST | `/assessments/bulk` | Save a sheet of CA/exam marks |
-| GET | `/reports` | Report card list (includes `position` and `outOf`) |
-| POST | `/reports/generate` | Generate report cards for a class/term/year |
-| GET | `/reports/:id` | Full report payload incl. cumulative and marks with `points` |
-| PATCH | `/reports/:id` | Edit comments/details (managers) |
-| PATCH | `/reports/:id/marks` | Edit marks (managers) |
-| POST | `/reports/:id/submit` | Submit for approval |
-| POST | `/reports/:id/approve` | Approve report |
-| POST | `/reports/:id/reopen` | Reopen approved report |
-| DELETE | `/reports/:id` | Delete (permission required) |
-| GET | `/reports/:id/pdf` | Download one PDF |
-| POST | `/reports/bulk-pdf` | Download ZIP of PDFs |
-| GET | `/analytics/overview` | School/section overview |
-| GET | `/analytics/progression` | Term-to-term progression |
-| GET | `/analytics/low-performers` | Configurable low-performer list |
-| GET | `/analytics/class/:classId` | Class analytics |
-| GET | `/dashboard` | Dashboard totals and recent activity |
-| GET | `/audit` | Audit trail (Super Admin) |
-| GET | `/audit/export` | CSV export (Super Admin) |
-| GET/PUT | `/settings` | School, grading and weight settings |
-| PATCH | `/settings/criteria` | Low-performance criteria |
-
-Report detail no longer includes attendance data. School details in the payload are campus-specific (campus name/address/phone/email).
-
----
-
-## 7. Scoring and grading
-
-```
-total = (CA × courseworkWeight + exam × examWeight) / (courseworkWeight + examWeight)
-```
-
-- Both component scores are out of 100.
-- Missing components are treated as zero for the total, but a report with no marks is not ranked.
-- Bands are matched from the highest score down, so a score equal to a band boundary takes the higher grade.
-- The Rwandan A/B/C/D/E/S/F bands and their points are listed in section 1 and can be edited in **Settings → Grading scales**. Higher points are better.
-- Class position is computed per campus, class, term and year and returned as `position` / `outOf`.
-- Term III reports append a cumulative table (Term I, Term II, Term III, average) and a cumulative overall line.
-
----
-
-## 8. Useful scripts
-
-Run from the repository root:
-
-```bash
-npm run install:all     # install server + client
-npm run dev             # run API + Vite together
-npm run build           # production frontend build
-npm run start           # start API
-npm run db:seed         # seed demo data into MongoDB
+```env
+DATABASE_URL="mysql://USER:PASSWORD@HOST:3306/DATABASE_NAME"
+JWT_SECRET="a-long-random-secret"
+JWT_EXPIRES_IN="12h"
+CLIENT_ORIGINS="http://localhost:5173"
+PORT=5000
+NODE_ENV=development
+# SCHOOL_LOGO_URL=""
 ```
 
 ---
 
-## 9. Notes
+## 4. Deployment
 
-- The school logo is bundled at `server/src/assets/logo.jpeg` (PDFs) and `client/src/assets/logo.jpeg` / `client/public/logo.jpeg` (web).
-- The report-card layout follows a standard Rwandan primary-school report format: campus header, student panel with position, subject table with points, summary line, Rwandan grading key and Class Teacher / Head Teacher / Parent signatures. Field labels and signatories can be adjusted in Settings.
-- Audit logs are append-only by design: no update or delete endpoint exists.
-- Delete permission never bypasses role restrictions; Super Admin can always delete, other users need `canDelete`.
-- The API uses a small repository facade (`server/src/lib/prisma.js`) over Mongoose models (`server/src/models/`). It preserves the original query API used by the routes while storing all data in MongoDB collections.
+### API on Render
+
+- Use `render.yaml` or create a Web Service with root directory `server`.
+- Build: `npm install` (the `postinstall` script runs `prisma generate`).
+- Start: `npm start`.
+- Set environment variables: `DATABASE_URL`, `JWT_SECRET`, `CLIENT_ORIGINS`, `JWT_EXPIRES_IN`, `NODE_ENV=production`.
+- Create the tables once with `npm run db:push`, then load demo data once with `npm run db:seed` (from the Render shell or any machine that can reach MySQL).
+
+### Web app on Vercel
+
+- Root directory: `client`.
+- Build command: `npm run build`; output directory: `dist`.
+- Set `VITE_API_URL` to the Render API URL.
+
+### Repository
+
+`https://github.com/nicyuzuzoog/report.git` (branch `main`).
+
+---
+
+## 5. Verification checklist
+
+- [ ] `npm run db:setup` completes and prints credentials for the global Super Admin and both campuses.
+- [ ] Logging in as `superadmin@lpareports.rw` works with both MAIN and RULINDO selected and shows that campus's data.
+- [ ] A RULINDO user cannot see a MAIN report (and vice versa).
+- [ ] Super Admin can switch student registration off; all other roles are then blocked from adding learners.
+- [ ] A teacher assigned as Class Teacher of P.4 can only register learners into P.4.
+- [ ] Mid-term, term and annual reports generate and each downloads as a **single-page** PDF.
+- [ ] Term reports show both mid-term and end-of-term scores; the total excludes the mid-term mark.
+- [ ] Generated/approved reports are listed rank 1 first.
+- [ ] The printed report has Class Teacher and Head Teacher signature lines and none of the removed details.

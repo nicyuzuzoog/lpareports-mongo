@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler } from '../lib/http.js';
 import { getSettings } from '../lib/settings.js';
-import { averageOf, gradeFor } from '../lib/grading.js';
+import { averageOf } from '../lib/grading.js';
 import { summariseMarks, positionsFor } from '../services/reportService.js';
 import { allowedClassIds, authenticate } from '../middleware/auth.js';
 
@@ -36,8 +36,7 @@ router.get(
         include: {
           student: true,
           class: true,
-          marks: { where: { campusId: req.user.campusId } },
-          approvedBy: { select: { name: true } }
+          marks: { where: { campusId: req.user.campusId } }
         },
         orderBy: { updatedAt: 'desc' }
       }),
@@ -50,8 +49,9 @@ router.get(
     const approved = cards.filter((card) => card.status === 'APPROVED');
     const drafts = cards.filter((card) => card.status === 'DRAFT');
 
+    const cardType = (card) => card.type || 'TERM';
     const averages = cards
-      .map((card) => summariseMarks(card.marks, card.class.level, settings).average)
+      .map((card) => summariseMarks(card.marks, card.class.level, settings, cardType(card)).average)
       .filter((value) => value !== null);
 
     const termAverages = ['TERM1', 'TERM2', 'TERM3'].map((term) => ({
@@ -59,7 +59,7 @@ router.get(
       average: averageOf(
         cards
           .filter((card) => card.term === term)
-          .map((card) => summariseMarks(card.marks, card.class.level, settings).average)
+          .map((card) => summariseMarks(card.marks, card.class.level, settings, cardType(card)).average)
           .filter((value) => value !== null)
       )
     }));
@@ -68,7 +68,7 @@ router.get(
       const levelClasses = classes.filter((item) => item.level === level);
       const levelCards = cards.filter((card) => card.class.level === level);
       const levelAverages = levelCards
-        .map((card) => summariseMarks(card.marks, level, settings).average)
+        .map((card) => summariseMarks(card.marks, level, settings, cardType(card)).average)
         .filter((value) => value !== null);
       return {
         level,
@@ -79,36 +79,42 @@ router.get(
       };
     });
 
-    const recentCards = cards.slice(0, 6);
+    // Rank whole groups first, then sort by position so the "recent" list
+    // always starts with the highest scorers (unranked cards last).
     const rankGroups = new Map();
-    for (const card of recentCards) {
-      const key = `${card.classId}|${card.term}|${card.year}`;
+    for (const card of cards) {
+      const key = `${card.classId}|${card.term}|${card.year}|${cardType(card)}`;
       if (!rankGroups.has(key)) {
         rankGroups.set(key, {
           classId: card.classId,
           term: card.term,
-          year: card.year
+          year: card.year,
+          type: cardType(card)
         });
       }
     }
     const rankedGroups = await Promise.all(
       [...rankGroups.values()].map(async (group) => [
-        `${group.classId}|${group.term}|${group.year}`,
+        `${group.classId}|${group.term}|${group.year}|${group.type}`,
         await positionsFor(
           req.user.campusId,
           group.classId,
           group.term,
           group.year,
-          settings
+          settings,
+          group.type
         )
       ])
     );
     const positionsByGroup = new Map(rankedGroups);
 
-    const recent = recentCards.map((card) => {
-      const summary = summariseMarks(card.marks, card.class.level, settings);
-      const key = `${card.classId}|${card.term}|${card.year}`;
-      const ranking = positionsByGroup.get(key) || { positions: new Map(), outOf: 0 };
+    const rankedReports = cards.map((card) => {
+      const type = cardType(card);
+      const summary = summariseMarks(card.marks, card.class.level, settings, type);
+      const ranking = positionsByGroup.get(`${card.classId}|${card.term}|${card.year}|${type}`) || {
+        positions: new Map(),
+        outOf: 0
+      };
       return {
         id: card.id,
         student: {
@@ -121,18 +127,24 @@ router.get(
         className: card.class.name,
         term: card.term,
         year: card.year,
+        type,
         status: card.status,
         average: summary.average,
-        grade: gradeFor(summary.average, card.class.level, settings).grade,
+        grade: summary.grade,
         position: ranking.positions.get(card.id) || null,
         outOf: ranking.outOf
       };
     });
+    rankedReports.sort((a, b) => {
+      const rank = (item) => (item.position === null ? Number.MAX_SAFE_INTEGER : item.position);
+      return rank(a) - rank(b);
+    });
+    const recent = rankedReports.slice(0, 6);
 
     let lowCount = null;
     if (req.user.role !== 'TEACHER') {
       lowCount = cards.filter((card) => {
-        const summary = summariseMarks(card.marks, card.class.level, settings);
+        const summary = summariseMarks(card.marks, card.class.level, settings, cardType(card));
         return summary.average !== null && summary.average < settings.lowPerformanceThreshold;
       }).length;
     }

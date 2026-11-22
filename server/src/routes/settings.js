@@ -3,7 +3,12 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler, HttpError } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
-import { getSettings, clearSettingsCache } from '../lib/settings.js';
+import {
+  getSettings,
+  clearSettingsCache,
+  getSystemSettings,
+  setStudentRegistrationEnabled
+} from '../lib/settings.js';
 import { DEFAULT_GRADING_SCALES } from '../lib/grading.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
@@ -54,9 +59,31 @@ router.get(
   })
 );
 
+// Convenience aliases for the global endpoints mounted at /api/system-settings.
+router.get(
+  '/system-settings',
+  requireRole('SUPER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const systemSettings = await getSystemSettings();
+    res.json({ systemSettings: { studentRegistrationEnabled: systemSettings?.studentRegistrationEnabled === true } });
+  })
+);
+
+router.patch(
+  '/system-settings',
+  requireRole('SUPER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const { studentRegistrationEnabled } = z
+      .object({ studentRegistrationEnabled: z.boolean() })
+      .parse(req.body);
+    await setStudentRegistrationEnabled(studentRegistrationEnabled);
+    res.json({ systemSettings: { studentRegistrationEnabled } });
+  })
+);
+
 router.put(
   '/',
-  requireRole('SUPER_ADMIN'),
+  requireRole('SUPER_ADMIN', 'DOS'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
 
@@ -112,7 +139,7 @@ router.put(
 
 router.patch(
   '/criteria',
-  requireRole('SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'),
+  requireRole('SUPER_ADMIN', 'DOS'),
   asyncHandler(async (req, res) => {
     const data = criteriaSchema.parse(req.body);
     const previous = await getSettings(req.user.campusId);

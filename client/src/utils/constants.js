@@ -4,6 +4,12 @@ export const TERMS = [
   { value: 'TERM3', label: 'Term III' }
 ];
 
+export const REPORT_TYPES = [
+  { value: 'MIDTERM', label: 'Mid-term' },
+  { value: 'TERM', label: 'Term' },
+  { value: 'ANNUAL', label: 'Annual' }
+];
+
 export const LEVELS = [
   { value: 'NURSERY', label: 'Nursery' },
   { value: 'LOWER_PRIMARY', label: 'Lower Primary' },

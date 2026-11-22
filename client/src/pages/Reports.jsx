@@ -7,8 +7,8 @@ import PageHeader from '../components/PageHeader.jsx';
 import Modal from '../components/Modal.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { EmptyState, ErrorAlert, Loading, Pagination } from '../components/Feedback.jsx';
-import { TERMS, YEAR_OPTIONS, currentYear } from '../utils/constants.js';
-import { classPosition, percent, termLabel } from '../utils/format.js';
+import { REPORT_TYPES, TERMS, YEAR_OPTIONS, currentYear } from '../utils/constants.js';
+import { classPosition, percent, reportTypeLabel, termLabel } from '../utils/format.js';
 
 const MANAGERS = ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'];
 
@@ -20,7 +20,8 @@ export default function Reports() {
   const [filters, setFilters] = useState({
     search: '',
     classId: '',
-    term: 'TERM3',
+    type: '',
+    term: '',
     year: currentYear,
     status: ''
   });
@@ -34,6 +35,7 @@ export default function Reports() {
 
   const [generateForm, setGenerateForm] = useState({
     classId: '',
+    type: 'TERM',
     term: 'TERM3',
     year: currentYear
   });
@@ -65,9 +67,10 @@ export default function Reports() {
     const params = new URLSearchParams({
       page: String(page),
       pageSize: '20',
-      term: filters.term,
       year: String(filters.year)
     });
+    if (filters.type) params.set('type', filters.type);
+    if (filters.term) params.set('term', filters.term);
     if (filters.classId) params.set('classId', filters.classId);
     if (filters.status) params.set('status', filters.status);
     if (filters.search.trim()) params.set('search', filters.search.trim());
@@ -96,7 +99,8 @@ export default function Reports() {
       const result = await api.post('/reports/generate', {
         classId: generateForm.classId,
         term: generateForm.term,
-        year: Number(generateForm.year)
+        year: Number(generateForm.year),
+        type: generateForm.type
       });
       toast(result.message);
       setGenerateOpen(false);
@@ -146,7 +150,7 @@ export default function Reports() {
     <>
       <PageHeader
         title="Report cards"
-        subtitle="Generate, verify and download termly reports. Term III reports include the annual cumulative summary."
+        subtitle="Generate, verify and download mid-term, term and annual reports."
       >
         <button type="button" className="btn btn-brand" onClick={() => setGenerateOpen(true)}>
           <i className="bi bi-file-earmark-plus me-2" />
@@ -182,8 +186,18 @@ export default function Reports() {
               </select>
             </div>
             <div className="form-group">
+              <label className="form-label">Type</label>
+              <select className="form-select" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}>
+                <option value="">All types</option>
+                {REPORT_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
               <label className="form-label">Term</label>
               <select className="form-select" value={filters.term} onChange={(event) => setFilter('term', event.target.value)}>
+                <option value="">All terms</option>
                 {TERMS.map((term) => (
                   <option key={term.value} value={term.value}>{term.label}</option>
                 ))}
@@ -222,6 +236,7 @@ export default function Reports() {
                 <tr>
                   <th>Student</th>
                   <th>Class</th>
+                  <th>Type</th>
                   <th>Term</th>
                   <th>Average</th>
                   <th>Grade</th>
@@ -238,19 +253,15 @@ export default function Reports() {
                       <div className="mono">{report.student.code}</div>
                     </td>
                     <td>{report.className}</td>
+                    <td>{report.typeLabel || reportTypeLabel(report.type)}</td>
                     <td>
-                      {termLabel(report.term)}
+                      {report.termLabel || termLabel(report.term)}
                       <span className="text-muted-2"> · {report.year}</span>
                     </td>
                     <td className="fw-650">{percent(report.average)}</td>
                     <td className="fw-650">{report.grade || '—'}</td>
                     <td className="fw-650">{classPosition(report.position, report.outOf)}</td>
-                    <td>
-                      <StatusBadge status={report.status} />
-                      {report.approvedBy ? (
-                        <div className="text-muted-2" style={{ fontSize: '0.68rem' }}>by {report.approvedBy}</div>
-                      ) : null}
-                    </td>
+                    <td><StatusBadge status={report.status} /></td>
                     <td className="text-end">
                       <div className="d-inline-flex gap-1">
                         <Link to={`/reports/${report.id}`} className="btn btn-sm btn-outline-brand" title="Open report">
@@ -326,19 +337,19 @@ export default function Reports() {
               ))}
             </select>
           </div>
-          <div className="col-6">
-            <label className="form-label">Term *</label>
+          <div className="col-md-6">
+            <label className="form-label">Report type *</label>
             <select
               className="form-select"
-              value={generateForm.term}
-              onChange={(event) => setGenerateForm((prev) => ({ ...prev, term: event.target.value }))}
+              value={generateForm.type}
+              onChange={(event) => setGenerateForm((prev) => ({ ...prev, type: event.target.value }))}
             >
-              {TERMS.map((term) => (
-                <option key={term.value} value={term.value}>{term.label}</option>
+              {REPORT_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
               ))}
             </select>
           </div>
-          <div className="col-6">
+          <div className="col-md-6">
             <label className="form-label">Year *</label>
             <select
               className="form-select"
@@ -350,14 +361,27 @@ export default function Reports() {
               ))}
             </select>
           </div>
-          {generateForm.term === 'TERM3' ? (
+          {generateForm.type !== 'ANNUAL' ? (
+            <div className="col-12">
+              <label className="form-label">Term *</label>
+              <select
+                className="form-select"
+                value={generateForm.term}
+                onChange={(event) => setGenerateForm((prev) => ({ ...prev, term: event.target.value }))}
+              >
+                {TERMS.map((term) => (
+                  <option key={term.value} value={term.value}>{term.label}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
             <div className="col-12">
               <div className="alert alert-info mb-0">
                 <i className="bi bi-info-circle me-1" />
-                Term III report cards automatically include the Term I, Term II and Term III cumulative summary.
+                Annual reports summarise Term I, Term II and Term III in one take-home report.
               </div>
             </div>
-          ) : null}
+          )}
         </form>
       </Modal>
 

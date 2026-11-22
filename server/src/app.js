@@ -5,7 +5,6 @@ import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
-import mongoose from 'mongoose';
 import { config } from './config/env.js';
 import { verifyToken } from './lib/jwt.js';
 import authRoutes from './routes/auth.js';
@@ -19,6 +18,7 @@ import analyticsRoutes from './routes/analytics.js';
 import dashboardRoutes from './routes/dashboard.js';
 import auditRoutes from './routes/audit.js';
 import settingRoutes from './routes/settings.js';
+import systemSettingsRoutes from './routes/system-settings.js';
 
 const app = express();
 
@@ -83,6 +83,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/settings', settingRoutes);
+app.use('/api/system-settings', systemSettingsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ message: 'Endpoint not found.' });
@@ -101,20 +102,14 @@ app.use((error, req, res, next) => {
     });
   }
 
-  if (error?.code === 11000 || error?.code === 11001) {
+  if (error?.code === 'P2002') {
     return res.status(409).json({ message: 'A record with these details already exists.' });
   }
-  if (error instanceof mongoose.Error.ValidationError) {
-    return res.status(400).json({
-      message: 'Please check the highlighted fields.',
-      errors: Object.entries(error.errors).map(([field, detail]) => ({
-        field,
-        message: detail.message
-      }))
-    });
+  if (error?.code === 'P2025') {
+    return res.status(404).json({ message: 'The requested record was not found.' });
   }
-  if (error?.name === 'BulkWriteError') {
-    return res.status(409).json({ message: 'A record with these details already exists.' });
+  if (error?.code === 'P2003') {
+    return res.status(400).json({ message: 'This record is still in use by another item.' });
   }
 
   const status = error.status || 500;
