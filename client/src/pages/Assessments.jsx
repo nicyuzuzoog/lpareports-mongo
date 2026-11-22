@@ -120,7 +120,7 @@ export default function Assessments() {
         studentId: student.id,
         total,
         grade: gradeFromScale(total, scale),
-        locked: student.reportStatus === 'APPROVED' && user.role === 'TEACHER'
+        locked: Boolean(student.reportStatus) && student.reportStatus !== 'DRAFT' && user.role === 'TEACHER'
       };
     });
   }, [rows, entries, caWeight, examWeight, scale, user.role]);
@@ -138,10 +138,11 @@ export default function Assessments() {
   const save = async () => {
     const records = rows.map((student) => {
       const entry = entries[student.id] || {};
-      const locked = student.reportStatus === 'APPROVED' && user.role === 'TEACHER';
+      const locked = Boolean(student.reportStatus) && student.reportStatus !== 'DRAFT' && user.role === 'TEACHER';
       return {
         studentId: student.id,
         caScore: locked ? student.mark?.caScore ?? null : entry.caScore === '' ? null : entry.caScore,
+        midtermScore: student.mark?.midtermScore ?? null,
         examScore: locked ? student.mark?.examScore ?? null : entry.examScore === '' ? null : entry.examScore,
         competency: locked ? student.mark?.competency : entry.competency || null,
         remark: locked ? student.mark?.remark : entry.remark || null
@@ -352,7 +353,7 @@ export default function Assessments() {
                         ) : (
                           <span className="badge badge-soft-muted">Not generated</span>
                         )}
-                        {locked ? <i className="bi bi-lock ms-1 text-muted-2" title="Approved — locked" /> : null}
+                        {locked ? <i className="bi bi-lock ms-1 text-muted-2" title="Locked until the Head Teacher or Super Admin rejects the report" /> : null}
                       </td>
                     </tr>
                   );

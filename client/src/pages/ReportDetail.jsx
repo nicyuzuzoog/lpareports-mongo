@@ -33,6 +33,7 @@ export default function ReportDetail() {
   const [weights, setWeights] = useState({ coursework: 40, exam: 60 });
 
   const isManager = ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'].includes(user.role);
+  const canReject = ['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role);
   const canDelete = user.role === 'SUPER_ADMIN' || user.canDelete;
   const canEditGrades = isManager;
 
@@ -206,7 +207,7 @@ export default function ReportDetail() {
               Edit grades
             </button>
           ) : null}
-          {report.status !== 'APPROVED' ? (
+          {report.status === 'DRAFT' ? (
             <button
               type="button"
               className="btn btn-brand"
@@ -228,18 +229,24 @@ export default function ReportDetail() {
               Approve
             </button>
           ) : null}
-          {isManager && report.status !== 'DRAFT' ? (
+          {canReject && report.status !== 'DRAFT' ? (
             <button
               type="button"
               className="btn btn-outline-brand"
-              disabled={busy === 'reopen'}
+              disabled={busy === 'reject'}
               onClick={() => {
-                if (!window.confirm('Return this report to draft?')) return;
-                runAction('reopen', () => api.post(`/reports/${id}/reopen`), 'Report returned to draft.');
+                const reason = window.prompt('Reason for rejection (optional):');
+                if (reason === null) return;
+                if (!window.confirm('Reject this report and unlock it for marks entry?')) return;
+                runAction(
+                  'reject',
+                  () => api.post(`/reports/${id}/reject`, { comment: reason || undefined }),
+                  'Report rejected and returned to draft.'
+                );
               }}
             >
               <i className="bi bi-arrow-counterclockwise me-2" />
-              Reopen
+              Reject
             </button>
           ) : null}
           {canDelete ? (

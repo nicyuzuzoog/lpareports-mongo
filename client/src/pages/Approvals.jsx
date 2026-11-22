@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
@@ -9,7 +10,9 @@ import { REPORT_TYPES, TERMS, YEAR_OPTIONS, currentYear } from '../utils/constan
 import { classPosition, percent, reportTypeLabel, termLabel } from '../utils/format.js';
 
 export default function Approvals() {
+  const { user } = useAuth();
   const { show: toast } = useToast();
+  const canReject = ['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role);
   const [classes, setClasses] = useState([]);
   const [data, setData] = useState({ reports: [], pagination: null });
   const [filters, setFilters] = useState({
@@ -71,11 +74,27 @@ export default function Approvals() {
     }
   };
 
+  const reject = async (report) => {
+    const reason = window.prompt('Reason for rejection (optional):');
+    if (reason === null) return;
+    if (!window.confirm(`Reject ${report.student.fullName}'s report and unlock it for marks entry?`)) return;
+    setBusy(report.id);
+    try {
+      const result = await api.post(`/reports/${report.id}/reject`, { comment: reason || undefined });
+      toast(result.message);
+      load();
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="Report approvals"
-        subtitle="Verify submitted scores and approve reports for issue. Approved reports can still be reopened by the DOS or Head Teacher."
+        subtitle="Verify submitted scores and approve reports for issue. Generated reports are locked until the Head Teacher or Super Admin rejects them back to draft."
       >
         <Link to="/reports" className="btn btn-outline-brand">
           <i className="bi bi-file-earmark-text me-2" />
@@ -192,6 +211,23 @@ export default function Approvals() {
                               <>
                                 <i className="bi bi-patch-check me-1" />
                                 Approve
+                              </>
+                            )}
+                          </button>
+                        ) : null}
+                        {canReject && report.status !== 'DRAFT' ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-brand"
+                            onClick={() => reject(report)}
+                            disabled={busy === report.id}
+                          >
+                            {busy === report.id ? (
+                              <span className="spinner-border spinner-border-sm" />
+                            ) : (
+                              <>
+                                <i className="bi bi-arrow-counterclockwise me-1" />
+                                Reject
                               </>
                             )}
                           </button>

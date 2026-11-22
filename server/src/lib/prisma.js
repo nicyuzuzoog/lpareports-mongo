@@ -349,6 +349,8 @@ function makeFacade(source) {
 
     createMany: (modelKey, args = {}) => model(modelKey).createMany(prepareArgs(args)),
 
+    updateMany: (modelKey, args = {}) => model(modelKey).updateMany(prepareArgs(args)),
+
     deleteMany: (modelKey, args = {}) => model(modelKey).deleteMany(prepareArgs(args))
   };
 
@@ -364,6 +366,7 @@ function makeFacade(source) {
       delete: (args) => api.delete(key, args),
       upsert: (args) => api.upsert(key, args),
       createMany: (args) => api.createMany(key, args),
+      updateMany: (args) => api.updateMany(key, args),
       deleteMany: (args) => api.deleteMany(key, args)
     };
   }

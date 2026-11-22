@@ -20,6 +20,7 @@ import {
   allowedClassIds,
   assertClassAccess,
   canApprove,
+  canReject,
   requireDeletePermission
 } from '../middleware/auth.js';
 
@@ -66,6 +67,24 @@ const marksSchema = z.object({
 
 const cardType = (card) => card.type || 'TERM';
 const groupKey = (classId, term, year, type) => `${classId}|${term}|${year}|${type}`;
+
+const STATUS_PRIORITY = { DRAFT: 0, SUBMITTED: 1, APPROVED: 2 };
+
+/** Report cards that share the same marks must be locked/unlocked together. */
+function relatedCardsWhere({ campusId, studentId, classId, term, year }) {
+  const base = { campusId, studentId, classId, year };
+  // Annual reports use the three term cards, so reject/submit the whole year.
+  if (term === 'ANNUAL') return base;
+  return { ...base, term };
+}
+
+function strongestStatus(statuses) {
+  return statuses.reduce(
+    (strongest, status) =>
+      (STATUS_PRIORITY[status] || 0) > (STATUS_PRIORITY[strongest] || 0) ? status : strongest,
+    'DRAFT'
+  );
+}
 
 function fullName(student) {
   return [student?.firstName, student?.otherNames, student?.lastName].filter(Boolean).join(' ');
@@ -304,6 +323,8 @@ router.post(
     );
 
     let created = 0;
+    let locked = 0;
+    const submittedAt = new Date();
     await prisma.$transaction(async (tx) => {
       for (const student of students) {
         let card = await tx.reportCard.findFirst({
@@ -321,7 +342,9 @@ router.post(
               type: data.type,
               studentName: fullName(student),
               createdById: req.user.id,
-              status: 'DRAFT'
+              status: 'SUBMITTED',
+              submittedById: req.user.id,
+              submittedAt
             }
           });
           created += 1;
@@ -345,6 +368,35 @@ router.post(
             }))
           });
         }
+      }
+
+      // Generating reports closes the marking period. Both TERM and MIDTERM
+      // cards (or the whole year for ANNUAL) are submitted together because
+      // they read from the same marks.
+      for (const student of students) {
+        const related = await tx.reportCard.findMany({
+          where: relatedCardsWhere({
+            campusId,
+            studentId: student.id,
+            classId: data.classId,
+            term,
+            year: data.year
+          }),
+          select: { id: true, status: true }
+        });
+        // Newly created cards are already SUBMITTED; count them as locked too.
+        locked += related.filter((item) => item.status !== 'APPROVED').length;
+        const drafts = related.filter((item) => item.status === 'DRAFT');
+        if (!drafts.length) continue;
+        await tx.reportCard.updateMany({
+          where: { id: { in: drafts.map((item) => item.id) } },
+          data: {
+            campusId,
+            status: 'SUBMITTED',
+            submittedById: req.user.id,
+            submittedAt
+          }
+        });
       }
     });
 
@@ -391,22 +443,24 @@ router.post(
       action: 'GENERATE',
       entity: 'ReportCard',
       entityId: `${data.classId}:${term}:${data.year}:${data.type}`,
-      description: `Generated ${created} ${data.type} report card(s) for ${schoolClass.name}, ${term} ${data.year}.`,
+      description: `Generated ${created} ${data.type} report card(s) for ${schoolClass.name}, ${term} ${data.year}; ${locked} card(s) locked for approval.`,
       after: {
         campusId,
         classId: data.classId,
         term,
         year: data.year,
         type: data.type,
-        created
+        created,
+        locked
       }
     });
 
     res.status(201).json({
       message: `${created} ${data.type} report card(s) generated${
         existingStudents.size ? `, ${existingStudents.size} already existed` : ''
-      }.`,
+      }${locked ? `, ${locked} locked for approval` : ''}.`,
       created,
+      locked,
       skipped: existingStudents.size,
       schoolName: settings.schoolName,
       reports
@@ -421,8 +475,11 @@ router.patch(
     const data = detailsSchema.parse(req.body);
     const report = await buildAndCheck(req.params.id, req.user);
 
-    if (report.status === 'APPROVED' && req.user.role === 'TEACHER') {
-      throw new HttpError(403, 'This report is approved and can only be edited by the DOS or Head Teacher.');
+    if (report.status !== 'DRAFT' && req.user.role === 'TEACHER') {
+      throw new HttpError(
+        403,
+        'This report is locked after generation. Ask the Head Teacher or Super Admin to reject it before making changes.'
+      );
     }
 
     const update = { campusId: req.user.campusId };
@@ -464,6 +521,9 @@ router.post(
   asyncHandler(async (req, res) => {
     const report = await buildAndCheck(req.params.id, req.user);
     if (report.status === 'APPROVED') throw new HttpError(400, 'This report is already approved.');
+    if (report.status !== 'DRAFT' && req.user.role === 'TEACHER') {
+      throw new HttpError(403, 'This report was already submitted by generation and is locked.');
+    }
     const assessed = await assessedCount(report, req.user);
     if (!assessed) throw new HttpError(400, 'Record at least one assessment score before submitting.');
 
@@ -520,6 +580,57 @@ router.post(
     });
 
     res.json({ message: 'Report approved.' });
+  })
+);
+
+router.post(
+  '/:id/reject',
+  asyncHandler(async (req, res) => {
+    if (!canReject(req.user)) {
+      throw new HttpError(403, 'Only the Head Teacher or Super Admin can reject a report.');
+    }
+    const { comment } = reopenSchema.parse(req.body || {});
+    const report = await buildAndCheck(req.params.id, req.user);
+    const where = relatedCardsWhere({
+      campusId: req.user.campusId,
+      studentId: report.studentId,
+      classId: report.classId,
+      term: report.term,
+      year: report.year
+    });
+    const related = await prisma.reportCard.findMany({
+      where,
+      select: { id: true, status: true }
+    });
+    const beforeStatus = strongestStatus(related.map((item) => item.status));
+
+    const update = {
+      campusId: req.user.campusId,
+      status: 'DRAFT',
+      submittedById: null,
+      submittedAt: null,
+      approvedById: null,
+      approvedAt: null
+    };
+    if (comment) {
+      if (req.user.role === 'HEAD_TEACHER') update.headComment = comment;
+      else update.dosComment = comment;
+    }
+    await prisma.reportCard.updateMany({ where, data: update });
+
+    await writeAudit(req, {
+      action: 'REJECT',
+      entity: 'ReportCard',
+      entityId: report.id,
+      description: `Rejected and unlocked ${related.length} report card(s) for ${report.student.firstName} ${report.student.lastName}, ${report.term} ${report.year}.`,
+      before: { status: beforeStatus, relatedCards: related.length },
+      after: { status: 'DRAFT', relatedCards: related.length, comment: comment || null }
+    });
+
+    res.json({
+      message: `Report rejected. ${related.length} report card(s) returned to draft; teachers can enter marks again.`,
+      unlocked: related.length
+    });
   })
 );
 
@@ -664,9 +775,6 @@ router.delete(
 router.post(
   '/bulk-pdf',
   asyncHandler(async (req, res) => {
-    if (!['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'].includes(req.user.role)) {
-      throw new HttpError(403, 'Only the DOS, Head Teacher or Super Admin can download report packs.');
-    }
     const data = generateSchema.extend({ status: statusSchema.optional() }).parse(req.body);
     await assertClassAccess(req.user, data.classId);
 

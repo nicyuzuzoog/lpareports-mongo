@@ -37,10 +37,12 @@ export default function Reports() {
     classId: '',
     type: 'TERM',
     term: 'TERM3',
-    year: currentYear
+    year: currentYear,
+    downloadAll: false
   });
   const [bulkForm, setBulkForm] = useState({
     classId: '',
+    type: 'TERM',
     term: 'TERM3',
     year: currentYear,
     status: ''
@@ -96,13 +98,25 @@ export default function Reports() {
     event.preventDefault();
     setGenerating(true);
     try {
-      const result = await api.post('/reports/generate', {
+      const payload = {
         classId: generateForm.classId,
         term: generateForm.term,
         year: Number(generateForm.year),
         type: generateForm.type
-      });
+      };
+      const result = await api.post('/reports/generate', payload);
       toast(result.message);
+      if (generateForm.downloadAll) {
+        try {
+          const filename = await download('/reports/bulk-pdf', 'report-cards.zip', {
+            method: 'POST',
+            body: payload
+          });
+          toast(`Downloaded all class reports (${filename}).`);
+        } catch (downloadError) {
+          toast(downloadError.message, 'danger');
+        }
+      }
       setGenerateOpen(false);
       load();
     } catch (err) {
@@ -132,6 +146,7 @@ export default function Reports() {
         method: 'POST',
         body: {
           classId: bulkForm.classId,
+          type: bulkForm.type,
           term: bulkForm.term,
           year: Number(bulkForm.year),
           ...(bulkForm.status ? { status: bulkForm.status } : {})
@@ -159,7 +174,7 @@ export default function Reports() {
         {isManager ? (
           <button type="button" className="btn btn-outline-brand" onClick={() => setBulkOpen(true)}>
             <i className="bi bi-download me-2" />
-            Download class pack
+            Download all class reports
           </button>
         ) : null}
       </PageHeader>
@@ -310,7 +325,7 @@ export default function Reports() {
         show={generateOpen}
         onClose={() => setGenerateOpen(false)}
         title="Generate report cards"
-        subtitle="Creates a report card for every active student in the class. Existing reports are kept."
+        subtitle="Creates a report card for every active student in the class and locks the marks. Existing reports are kept; only the Head Teacher or Super Admin can reject a generated report back to draft."
         footer={
           <>
             <button type="button" className="btn btn-outline-brand" onClick={() => setGenerateOpen(false)} disabled={generating}>
@@ -360,6 +375,20 @@ export default function Reports() {
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
+          </div>
+          <div className="col-12">
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="download-all-generated"
+                checked={generateForm.downloadAll}
+                onChange={(event) => setGenerateForm((prev) => ({ ...prev, downloadAll: event.target.checked }))}
+              />
+              <label className="form-check-label" htmlFor="download-all-generated">
+                Download all class reports as one ZIP after generating
+              </label>
+            </div>
           </div>
           {generateForm.type !== 'ANNUAL' ? (
             <div className="col-12">
@@ -417,17 +446,31 @@ export default function Reports() {
             </select>
           </div>
           <div className="col-6">
-            <label className="form-label">Term *</label>
+            <label className="form-label">Report type *</label>
             <select
               className="form-select"
-              value={bulkForm.term}
-              onChange={(event) => setBulkForm((prev) => ({ ...prev, term: event.target.value }))}
+              value={bulkForm.type}
+              onChange={(event) => setBulkForm((prev) => ({ ...prev, type: event.target.value }))}
             >
-              {TERMS.map((term) => (
-                <option key={term.value} value={term.value}>{term.label}</option>
+              {REPORT_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
               ))}
             </select>
           </div>
+          {bulkForm.type !== 'ANNUAL' ? (
+            <div className="col-6">
+              <label className="form-label">Term *</label>
+              <select
+                className="form-select"
+                value={bulkForm.term}
+                onChange={(event) => setBulkForm((prev) => ({ ...prev, term: event.target.value }))}
+              >
+                {TERMS.map((term) => (
+                  <option key={term.value} value={term.value}>{term.label}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="col-6">
             <label className="form-label">Year *</label>
             <select

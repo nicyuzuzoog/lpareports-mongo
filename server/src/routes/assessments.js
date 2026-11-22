@@ -20,6 +20,7 @@ const router = Router();
 router.use(authenticate);
 
 const termSchema = z.enum(['TERM1', 'TERM2', 'TERM3']);
+const STATUS_PRIORITY = { DRAFT: 0, SUBMITTED: 1, APPROVED: 2 };
 
 const recordSchema = z.object({
   studentId: z.string().min(1),
@@ -90,6 +91,15 @@ router.get(
         .filter((card) => !card.type || card.type === 'TERM')
         .map((card) => [card.studentId, card])
     );
+    // MIDTERM and TERM cards share the same marks. Show the strictest status
+    // so a generated MIDTERM report also locks this marks grid.
+    const statusByStudent = new Map();
+    for (const card of cards) {
+      const current = statusByStudent.get(card.studentId);
+      if (!current || (STATUS_PRIORITY[card.status] || 0) > (STATUS_PRIORITY[current] || 0)) {
+        statusByStudent.set(card.studentId, card.status);
+      }
+    }
 
     res.json({
       class: { id: schoolClass.id, name: schoolClass.name, level: schoolClass.level },
@@ -108,7 +118,7 @@ router.get(
           code: student.code,
           fullName: [student.firstName, student.otherNames, student.lastName].filter(Boolean).join(' '),
           reportCardId: card?.id || null,
-          reportStatus: card?.status || null,
+          reportStatus: statusByStudent.get(student.id) || null,
           mark: mark
             ? {
                 id: mark.id,
@@ -175,14 +185,25 @@ router.post(
       },
       select: { studentId: true, status: true, type: true }
     });
-    const termCards = existingCards.filter((card) => !card.type || card.type === 'TERM');
-    const statusByStudent = new Map(termCards.map((card) => [card.studentId, card.status]));
+    const statusByStudent = new Map();
+    for (const card of existingCards) {
+      const current = statusByStudent.get(card.studentId);
+      if (!current || (STATUS_PRIORITY[card.status] || 0) > (STATUS_PRIORITY[current] || 0)) {
+        statusByStudent.set(card.studentId, card.status);
+      }
+    }
 
     if (
       req.user.role === 'TEACHER' &&
-      data.records.some((record) => statusByStudent.get(record.studentId) === 'APPROVED')
+      data.records.some((record) => {
+        const status = statusByStudent.get(record.studentId);
+        return status && status !== 'DRAFT';
+      })
     ) {
-      throw new HttpError(403, 'One or more reports are already approved and can no longer be edited by a teacher.');
+      throw new HttpError(
+        403,
+        'One or more reports are locked after generation. Ask the Head Teacher or Super Admin to reject them before entering marks.'
+      );
     }
 
     let saved = 0;

@@ -45,7 +45,8 @@ The interface is flat, clean and professional. Report cards follow a standard Rw
 | Register students | ✓ | ✓ | ✓ | ✓ (own class only, if assigned) |
 | Enter assessments and mid-term scores | ✓ | ✓ | ✓ | assigned classes/subjects |
 | Generate report cards | ✓ | ✓ | ✓ | assigned classes |
-| Approve / reopen reports | ✓ | ✓ | ✓ | — |
+| Approve reports | ✓ | ✓ | ✓ | — |
+| Reject a generated report back to draft | ✓ | — | ✓ | — |
 | Audit trail | ✓ | — | — | — |
 | Grant delete permission / delete records | ✓ | only if granted | only if granted | only if granted |
 
@@ -79,7 +80,9 @@ There are three report types, one report per learner per period:
 - Approved and generated reports are listed **by rank — highest scorer first**.
 - Every report is **exactly one A4 page**. The take-home copy contains only: school header, learner details, the subject/term table, average, position and two signature lines (**Class Teacher** and **Head Teacher**).
 - Deliberately **not** printed on the take-home report: comments, submitter/approver names, submission or approval dates, guardian contact details, grading-key/benchmark table, points/aggregate column, attendance, and page numbers.
-- Bulk download as a ZIP of single-page PDFs is available for Head Teacher and Super Admin.
+- **Generating reports closes the marking period.** Generated cards are submitted and locked, so teachers cannot add or change marks until the **Head Teacher or Super Admin rejects** the affected report back to draft. Already-approved cards are never downgraded by a later generation.
+- The generate dialog can immediately **download every report for that class as one ZIP**. The same class-wide pack is also available from the “Download all class reports” button, with type, term, year and status filters.
+- Bulk download as a ZIP of single-page PDFs is available to any user with access to the selected class.
 
 ### Administration
 

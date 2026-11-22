@@ -87,6 +87,9 @@ export function requireDeletePermission(req, res, next) {
 
 export const isSuperAdmin = (user) => user.role === 'SUPER_ADMIN';
 export const canApprove = (user) => ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'].includes(user.role);
+// A rejected report is returned to draft so teachers can enter marks again.
+// Only the Head Teacher or Super Admin may unlock a generated report set.
+export const canReject = (user) => ['SUPER_ADMIN', 'HEAD_TEACHER'].includes(user.role);
 export const canManageStudents = (user) =>
   ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER', 'TEACHER'].includes(user.role);
 
