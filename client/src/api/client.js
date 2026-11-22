@@ -82,13 +82,23 @@ export async function getSystemSettings() {
     const enabled =
       data?.systemSettings?.studentRegistrationEnabled ??
       data?.settings?.studentRegistrationEnabled;
-    if (typeof enabled === 'boolean') return { systemSettings: { studentRegistrationEnabled: enabled } };
+    const loginDisabled =
+      data?.systemSettings?.loginDisabledExceptSuperAdmin ??
+      data?.settings?.loginDisabledExceptSuperAdmin;
+    if (typeof enabled === 'boolean' || typeof loginDisabled === 'boolean') {
+      return {
+        systemSettings: {
+          studentRegistrationEnabled: enabled === true,
+          loginDisabledExceptSuperAdmin: loginDisabled === true
+        }
+      };
+    }
     throw error;
   }
 }
 
-export const patchSystemSettings = (studentRegistrationEnabled) =>
-  systemSettingsRequest('PATCH', { studentRegistrationEnabled });
+export const patchSystemSettings = (patch) =>
+  systemSettingsRequest('PATCH', patch && typeof patch === 'object' ? patch : { studentRegistrationEnabled: patch });
 
 function filenameFromHeaders(response, fallback) {
   const disposition = response.headers.get('content-disposition') || '';

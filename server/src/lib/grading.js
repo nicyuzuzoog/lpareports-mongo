@@ -56,16 +56,16 @@ export const CAMPUSES = {
 
 const CAMPUS_CONTACT = {
   MAIN: {
-    schoolMotto: 'Knowledge, Character, Service',
+    schoolMotto: 'excellent working for success',
     schoolPhone: '+250 788 300 100',
-    schoolEmail: 'info@lpareports.rw',
+    schoolEmail: 'info@peacelight.com',
     headTeacherName: 'Mr. Nkurunziza Emmanuel',
     dosName: 'Ms. Mukamana Grace'
   },
   RULINDO: {
-    schoolMotto: 'Knowledge, Character, Service',
+    schoolMotto: 'excellent working for success',
     schoolPhone: '+250 788 300 200',
-    schoolEmail: 'rulindo@lpareports.rw',
+    schoolEmail: 'info@peacelight.com',
     headTeacherName: 'Mr. Habimana Jean',
     dosName: 'Ms. Uwimana Claudine'
   }

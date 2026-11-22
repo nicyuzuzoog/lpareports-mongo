@@ -36,8 +36,16 @@ export async function getSystemSettings() {
   let settings = await prisma.systemSetting.findUnique({ where: { id: SYSTEM_SETTINGS_ID } });
   if (!settings) {
     settings = await prisma.systemSetting.create({
-      data: { id: SYSTEM_SETTINGS_ID, studentRegistrationEnabled: true }
+      data: {
+        id: SYSTEM_SETTINGS_ID,
+        studentRegistrationEnabled: true,
+        loginDisabledExceptSuperAdmin: false
+      }
     });
+  }
+  // Backfill default for databases created before this field existed.
+  if (settings.loginDisabledExceptSuperAdmin === undefined || settings.loginDisabledExceptSuperAdmin === null) {
+    settings = { ...settings, loginDisabledExceptSuperAdmin: false };
   }
   systemSettingsCache = settings;
   return settings;
@@ -51,8 +59,27 @@ export async function setStudentRegistrationEnabled(value) {
   const studentRegistrationEnabled = value === true || value === 'true' || value === 1 || value === '1';
   const settings = await prisma.systemSetting.upsert({
     where: { id: SYSTEM_SETTINGS_ID },
-    create: { id: SYSTEM_SETTINGS_ID, studentRegistrationEnabled },
+    create: {
+      id: SYSTEM_SETTINGS_ID,
+      studentRegistrationEnabled,
+      loginDisabledExceptSuperAdmin: false
+    },
     update: { studentRegistrationEnabled }
+  });
+  clearSystemSettingsCache();
+  return settings;
+}
+
+export async function setLoginDisabledExceptSuperAdmin(value) {
+  const loginDisabledExceptSuperAdmin = value === true || value === 'true' || value === 1 || value === '1';
+  const settings = await prisma.systemSetting.upsert({
+    where: { id: SYSTEM_SETTINGS_ID },
+    create: {
+      id: SYSTEM_SETTINGS_ID,
+      studentRegistrationEnabled: true,
+      loginDisabledExceptSuperAdmin
+    },
+    update: { loginDisabledExceptSuperAdmin }
   });
   clearSystemSettingsCache();
   return settings;

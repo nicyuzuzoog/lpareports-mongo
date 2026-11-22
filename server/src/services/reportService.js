@@ -32,19 +32,30 @@ export function summariseMarks(marks, level, settings, type = 'TERM') {
     .filter((point) => point !== null && point !== undefined);
   const aggregate = points.length ? points.reduce((a, b) => a + b, 0) : null;
 
+  const passMark = Number(settings?.passMark ?? 50);
+  const passedSubjects = scores.filter((score) => Number(score) >= passMark).length;
+  const failedSubjects = scores.filter((score) => Number(score) < passMark).length;
+  const passPercentage =
+    assessed.length > 0 ? Math.round((passedSubjects / assessed.length) * 1000) / 10 : null;
+
   return {
     subjectsAssessed: assessed.length,
+    expectedTotalMarks: assessed.length * 100,
     totalMarks: Math.round(scores.reduce((acc, score) => acc + Number(score || 0), 0) * 10) / 10,
     average,
     grade: gradeInfo.grade,
     remark: gradeInfo.remark,
     aggregate,
-    passMark: Number(settings?.passMark ?? 50)
+    passMark,
+    passedSubjects,
+    failedSubjects,
+    passPercentage
   };
 }
 
 export function markRows(report, settings, type = 'TERM') {
   const level = report.class?.level || 'LOWER_PRIMARY';
+  const passMark = Number(settings?.passMark ?? 50);
   return (report.marks || [])
     .slice()
     .sort(
@@ -55,15 +66,18 @@ export function markRows(report, settings, type = 'TERM') {
     .map((mark, index) => {
       const score = effectiveScoreFor(mark, type);
       const gradeInfo = gradeFor(score, level, settings);
+      const passed = score === null ? null : Number(score) >= passMark;
       return {
         number: index + 1,
         subject: mark.subject?.name || 'Subject',
+        expectedMark: 100,
         midtermScore: mark.midtermScore ?? null,
         examScore: mark.examScore ?? null,
         total: type === 'MIDTERM' ? score : mark.total ?? null,
         grade: gradeInfo.grade,
         remark: gradeInfo.remark,
-        points: gradeInfo.points
+        points: gradeInfo.points,
+        passed
       };
     });
 }
@@ -281,10 +295,16 @@ export async function buildReportPayload(reportId, settings) {
     annual = await annualDataFor(campusId, report.classId, report.year, settings, report.studentId, level);
     summary = {
       subjectsAssessed: annual.terms.filter((term) => term.average !== null).length,
+      expectedTotalMarks: null,
+      totalMarks: null,
       average: annual.overallAverage,
       grade: annual.overallGrade,
       remark: gradeFor(annual.overallAverage, level, settings).remark,
       aggregate: null,
+      passMark: Number(settings?.passMark ?? 50),
+      passedSubjects: null,
+      failedSubjects: null,
+      passPercentage: null,
       position: annual.overallPosition,
       positionLabel: ordinal(annual.overallPosition),
       outOf: annual.overallOutOf
@@ -296,10 +316,16 @@ export async function buildReportPayload(reportId, settings) {
     const position = ranking.positions.get(report.id) || null;
     summary = {
       subjectsAssessed: computed.subjectsAssessed,
+      expectedTotalMarks: computed.expectedTotalMarks,
+      totalMarks: computed.totalMarks,
       average: computed.average,
       grade: computed.grade,
       remark: computed.remark,
       aggregate: computed.aggregate,
+      passMark: computed.passMark,
+      passedSubjects: computed.passedSubjects,
+      failedSubjects: computed.failedSubjects,
+      passPercentage: computed.passPercentage,
       position,
       positionLabel: ordinal(position),
       outOf: ranking.outOf

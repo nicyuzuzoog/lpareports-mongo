@@ -42,6 +42,7 @@ The interface is flat, clean and professional. Report cards follow a standard Rw
 | Add DOS / Head Teacher accounts | ✓ | — | — | — |
 | Edit grading benchmarks / school settings | ✓ | ✓ | — | — |
 | Global student-registration on/off switch | ✓ | — | — | — |
+| Disable sign-in for all users except Super Admin | ✓ | — | — | — |
 | Register students | ✓ | ✓ | ✓ | ✓ (own class only, if assigned) |
 | Enter assessments and mid-term scores | ✓ | ✓ | ✓ | assigned classes/subjects |
 | Generate report cards | ✓ | ✓ | ✓ | assigned classes |
@@ -81,8 +82,10 @@ There are three report types, one report per learner per period:
 - Every report is **exactly one A4 page**. The take-home copy contains only: school header, learner details, the subject/term table, average, position and two signature lines (**Class Teacher** and **Head Teacher**).
 - Deliberately **not** printed on the take-home report: comments, submitter/approver names, submission or approval dates, guardian contact details, grading-key/benchmark table, points/aggregate column, attendance, and page numbers.
 - **Generating reports closes the marking period.** Generated cards are submitted and locked, so teachers cannot add or change marks until the **Head Teacher or Super Admin rejects** the affected report back to draft. Already-approved cards are never downgraded by a later generation.
-- The generate dialog can immediately **download every report for that class as one ZIP**. The same class-wide pack is also available from the “Download all class reports” button, with type, term, year and status filters.
-- Bulk download as a ZIP of single-page PDFs is available to any user with access to the selected class.
+- The generate dialog can immediately **download every report for that class as one PDF** (one student per page). The same class-wide pack is also available from the “Download all class reports” button, with type, term, year and status filters.
+- Bulk download as a single class PDF (one student per page) is available to any user with access to the selected class.
+- Report cards show **expected marks, obtained total, position, pass percentage**, highlighted marks, and per-subject pass/fail; the footer motto is **"excellent working for success"**.
+- Super Admin can **disable sign-in for all non–Super Admin users** from System controls; the API enforces it.
 
 ### Administration
 

@@ -100,7 +100,9 @@ function drawSchoolHeader(doc, payload, settings) {
 }
 
 function studentPanel(doc, payload, y) {
-  const position = payload.summary?.position;
+  const summary = payload.summary || {};
+  const position = summary.position;
+  const passPct = summary.passPercentage;
   const rows = [
     ['STUDENT NAME', payload.student?.fullName || payload.student?.name || '-', 'STUDENT ID', payload.student?.code || '-'],
     [
@@ -111,33 +113,43 @@ function studentPanel(doc, payload, y) {
     ],
     [
       'POSITION',
-      position ? `${position} / ${payload.summary?.outOf ?? '-'}` : '- / -',
+      position ? `${position} / ${summary.outOf ?? '-'}` : '- / -',
       'AVERAGE',
-      payload.summary?.average === null || payload.summary?.average === undefined
+      summary.average === null || summary.average === undefined ? '-' : `${summary.average}%`
+    ],
+    [
+      'TOTAL MARKS',
+      summary.totalMarks === null || summary.totalMarks === undefined
         ? '-'
-        : `${payload.summary.average}%`
+        : `${summary.totalMarks} / ${summary.expectedTotalMarks ?? '-'}`,
+      'PASS %',
+      passPct === null || passPct === undefined ? '-' : `${passPct}%`
     ]
   ];
 
-  const height = 66;
+  const height = 80;
   doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill(COLORS.light);
   doc.rect(PAGE.margin, y, 3, height).fill(COLORS.green);
   const colWidth = PAGE.contentWidth / 2;
 
   rows.forEach((row, index) => {
-    const rowY = y + 8 + index * 19;
-    doc.font('Helvetica-Bold').fontSize(6.4).fillColor(COLORS.muted)
+    const rowY = y + 7 + index * 18;
+    doc.font('Helvetica-Bold').fontSize(6.2).fillColor(COLORS.muted)
       .text(row[0], PAGE.margin + 12, rowY, { width: 76, lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(8.6).fillColor(COLORS.ink)
-      .text(String(row[1] || '-'), PAGE.margin + 90, rowY - 1.5, {
+    doc.font('Helvetica-Bold').fontSize(8.2).fillColor(COLORS.ink)
+      .text(String(row[1] || '-'), PAGE.margin + 90, rowY - 1.2, {
         width: colWidth - 100,
         lineBreak: false,
         ellipsis: true
       });
-    doc.font('Helvetica-Bold').fontSize(6.4).fillColor(COLORS.muted)
+    doc.font('Helvetica-Bold').fontSize(6.2).fillColor(COLORS.muted)
       .text(row[2], PAGE.margin + colWidth + 8, rowY, { width: 76, lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(8.6).fillColor(COLORS.ink)
-      .text(String(row[3] || '-'), PAGE.margin + colWidth + 86, rowY - 1.5, {
+    const isPassPct = row[2] === 'PASS %';
+    const passColor = isPassPct && passPct !== null && passPct !== undefined
+      ? (Number(passPct) >= 50 ? COLORS.green : COLORS.amber)
+      : COLORS.ink;
+    doc.font('Helvetica-Bold').fontSize(8.2).fillColor(passColor)
+      .text(String(row[3] || '-'), PAGE.margin + colWidth + 86, rowY - 1.2, {
         width: colWidth - 96,
         lineBreak: false,
         ellipsis: true
@@ -177,22 +189,35 @@ function cell(doc, text, x, y, width, align, options = {}) {
     });
 }
 
+function drawHighlightedCell(doc, text, x, y, width, align, bg, color) {
+  doc.rect(x + 1, y + 1, width - 2, ROW_HEIGHT - 2).fill(bg);
+  cell(doc, text, x, y, width, align, {
+    font: 'Helvetica-Bold',
+    color: color || COLORS.ink
+  });
+}
+
 function subjectTable(doc, payload, startY) {
   const isMidterm = payload.type === 'MIDTERM';
+  const passMark = Number(payload.summary?.passMark ?? 50);
   const columns = isMidterm
     ? [
-        { label: 'No', width: 30, align: 'center' },
-        { label: 'Subject', width: 275, align: 'left' },
-        { label: 'Mid-term', width: 90, align: 'center' },
-        { label: 'Grade', width: 120.28, align: 'center' }
+        { label: 'No', width: 26, align: 'center' },
+        { label: 'Subject', width: 229, align: 'left' },
+        { label: 'Expected', width: 56, align: 'center' },
+        { label: 'Mid-term', width: 70, align: 'center' },
+        { label: 'Grade', width: 60, align: 'center' },
+        { label: 'Result', width: 74.28, align: 'center' }
       ]
     : [
-        { label: 'No', width: 26, align: 'center' },
-        { label: 'Subject', width: 184, align: 'left' },
-        { label: 'Mid-term', width: 76, align: 'center' },
-        { label: 'End-term', width: 76, align: 'center' },
-        { label: 'Total', width: 62, align: 'center' },
-        { label: 'Grade', width: 91.28, align: 'center' }
+        { label: 'No', width: 24, align: 'center' },
+        { label: 'Subject', width: 155, align: 'left' },
+        { label: 'Expected', width: 48, align: 'center' },
+        { label: 'Mid-term', width: 54, align: 'center' },
+        { label: 'End-term', width: 54, align: 'center' },
+        { label: 'Total', width: 54, align: 'center' },
+        { label: 'Grade', width: 52, align: 'center' },
+        { label: 'Result', width: 74.28, align: 'center' }
       ];
 
   const header = drawColumns(doc, columns, startY);
@@ -203,26 +228,68 @@ function subjectTable(doc, payload, startY) {
     if (index % 2 === 1) doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).fill(COLORS.light);
     doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).lineWidth(0.35).stroke(COLORS.line);
 
+    const score = mark.total;
+    const passed = score !== null && score !== undefined ? Number(score) >= passMark : null;
+    const resultText = passed === null ? '-' : passed ? 'PASS' : 'FAIL';
+    const resultBg = passed === null ? COLORS.white : passed ? '#e9f7ef' : '#fff3cd';
+    const resultColor = passed === null ? COLORS.ink : passed ? COLORS.green : COLORS.amber;
+
     const values = isMidterm
-      ? [index + 1, mark.subject, mark.midtermScore ?? '-', mark.grade || '-']
+      ? [index + 1, mark.subject, mark.expectedMark ?? 100, mark.midtermScore ?? '-', mark.grade || '-', resultText]
       : [
           index + 1,
           mark.subject,
+          mark.expectedMark ?? 100,
           mark.midtermScore ?? '-',
           mark.examScore ?? '-',
           mark.total ?? '-',
-          mark.grade || '-'
+          mark.grade || '-',
+          resultText
         ];
+
     values.forEach((value, columnIndex) => {
       const column = columns[columnIndex];
-      const isGrade = columnIndex === values.length - 1;
+      const isMarks = isMidterm ? columnIndex === 3 : [3, 4, 5].includes(columnIndex);
+      const isGrade = isMidterm ? columnIndex === 4 : columnIndex === 6;
+      const isResult = columnIndex === values.length - 1;
+
+      if (isResult) {
+        drawHighlightedCell(doc, value, header.xs[columnIndex], y, column.width, column.align, resultBg, resultColor);
+        return;
+      }
+      if (isMarks && value !== '-') {
+        drawHighlightedCell(doc, value, header.xs[columnIndex], y, column.width, column.align, '#eef6ff', COLORS.navy);
+        return;
+      }
+      if (isGrade) {
+        drawHighlightedCell(doc, value, header.xs[columnIndex], y, column.width, column.align, '#f7f9fc', gradeColor(mark.grade));
+        return;
+      }
+
       cell(doc, value, header.xs[columnIndex], y, column.width, column.align, {
         font: columnIndex === 1 ? 'Helvetica-Bold' : 'Helvetica',
-        color: isGrade ? gradeColor(mark.grade) : COLORS.ink
+        color: COLORS.ink
       });
     });
     y += ROW_HEIGHT;
   });
+
+  const summary = payload.summary || {};
+  const totalsRow = isMidterm
+    ? ['TOTAL', '', summary.expectedTotalMarks ?? '-', summary.totalMarks ?? '-', summary.grade ?? '-', summary.passPercentage == null ? '-' : `${summary.passPercentage}%`]
+    : ['TOTAL', '', summary.expectedTotalMarks ?? '-', '', '', summary.totalMarks ?? '-', summary.grade ?? '-', summary.passPercentage == null ? '-' : `${summary.passPercentage}%`];
+  doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).fill('#eaf2fb');
+  doc.rect(PAGE.margin, y, PAGE.contentWidth, ROW_HEIGHT).lineWidth(0.45).stroke(COLORS.navy);
+  totalsRow.forEach((value, columnIndex) => {
+    const column = columns[columnIndex];
+    if (columnIndex === 1) return;
+    cell(doc, value, header.xs[columnIndex], y, column.width, column.align, {
+      font: 'Helvetica-Bold',
+      color: columnIndex === totalsRow.length - 1 ? (Number(summary.passPercentage) >= 50 ? COLORS.green : COLORS.amber) : COLORS.navy
+    });
+  });
+
+  y += ROW_HEIGHT;
 
   if (!marks.length) {
     doc.rect(PAGE.margin, y, PAGE.contentWidth, 26).lineWidth(0.35).stroke(COLORS.line);
@@ -329,6 +396,17 @@ function footer(doc, payload) {
     });
 }
 
+function drawReportPage(doc, payload, settings) {
+  const y = drawSchoolHeader(doc, payload, settings);
+  band(doc, y, `${(payload.typeLabel || 'Term').toUpperCase()} REPORT CARD  —  ${payload.year}`);
+  const infoBottom = studentPanel(doc, payload, 132);
+  const tableY = infoBottom + 8;
+  if (payload.type === 'ANNUAL') annualTable(doc, payload, tableY);
+  else subjectTable(doc, payload, tableY);
+  signatures(doc, payload, settings);
+  footer(doc, payload);
+}
+
 /**
  * Exactly one A4 page for every report type. No addPage(), no page numbers,
  * no comment blocks, no attendance, no grading key, no approval/submission
@@ -352,13 +430,38 @@ export function buildReportPdf(payload, settings) {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      const y = drawSchoolHeader(doc, payload, settings);
-      band(doc, y, `${(payload.typeLabel || 'Term').toUpperCase()} REPORT CARD  —  ${payload.year}`);
-      studentPanel(doc, payload, 132);
-      if (payload.type === 'ANNUAL') annualTable(doc, payload, 210);
-      else subjectTable(doc, payload, 210);
-      signatures(doc, payload, settings);
-      footer(doc, payload);
+      drawReportPage(doc, payload, settings);
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+export function buildClassReportsPdf(payloads, settings) {
+  return new Promise((resolve, reject) => {
+    try {
+      const first = payloads[0] || {};
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: PAGE.margin,
+        info: {
+          Title: `${first.className || 'Class'} - ${first.typeLabel || 'Term'} ${first.year || ''} Reports`,
+          Author: first.school?.campusName || settings?.schoolName || 'LPAREPORTS',
+          Subject: 'LPAREPORTS Class Report Cards'
+        }
+      });
+
+      const chunks = [];
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      payloads.forEach((payload, index) => {
+        if (index > 0) doc.addPage({ size: 'A4', margin: PAGE.margin });
+        drawReportPage(doc, payload, settings);
+      });
 
       doc.end();
     } catch (error) {

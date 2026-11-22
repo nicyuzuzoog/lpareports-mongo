@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import archiver from 'archiver';
+// archiver no longer used: class reports are delivered as a single PDF.
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
@@ -814,23 +814,14 @@ router.post(
       payloads.push(await buildReportPayload(card.id, settings));
     }
 
-    const zipName = `${schoolClass.name.replace(/[^a-z0-9]+/gi, '-')}-${term}-${data.type}-${data.year}-reports.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+    const pdfName = `${schoolClass.name.replace(/[^a-z0-9]+/gi, '-')}-${term}-${data.type}-${data.year}-reports.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdfName}"`);
 
-    const archive = archiver('zip', { zlib: { level: 6 } });
-    archive.on('error', (error) => {
-      console.error('Archive error:', error);
-      if (!res.headersSent) res.status(500).end();
-      else res.end();
-    });
-    archive.pipe(res);
-
-    for (const payload of payloads) {
-      const buffer = await buildReportPdf(payload, settings);
-      archive.append(buffer, { name: pdfFileName(payload) });
-    }
-    await archive.finalize();
+    const { buildClassReportsPdf } = await import('../lib/pdf.js');
+    const buffer = await buildClassReportsPdf(payloads, settings);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
 
     await writeAudit(req, {
       action: 'DOWNLOAD',

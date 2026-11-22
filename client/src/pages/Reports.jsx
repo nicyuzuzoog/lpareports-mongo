@@ -108,7 +108,7 @@ export default function Reports() {
       toast(result.message);
       if (generateForm.downloadAll) {
         try {
-          const filename = await download('/reports/bulk-pdf', 'report-cards.zip', {
+          const filename = await download('/reports/bulk-pdf', 'class-reports.pdf', {
             method: 'POST',
             body: payload
           });
@@ -142,7 +142,7 @@ export default function Reports() {
     event.preventDefault();
     setDownloading('bulk');
     try {
-      await download('/reports/bulk-pdf', 'report-cards.zip', {
+      await download('/reports/bulk-pdf', 'class-reports.pdf', {
         method: 'POST',
         body: {
           classId: bulkForm.classId,
@@ -152,7 +152,7 @@ export default function Reports() {
           ...(bulkForm.status ? { status: bulkForm.status } : {})
         }
       });
-      toast('Report card pack downloaded.');
+      toast('Class report PDF downloaded.');
       setBulkOpen(false);
     } catch (err) {
       toast(err.message, 'danger');
@@ -171,12 +171,10 @@ export default function Reports() {
           <i className="bi bi-file-earmark-plus me-2" />
           Generate reports
         </button>
-        {isManager ? (
-          <button type="button" className="btn btn-outline-brand" onClick={() => setBulkOpen(true)}>
-            <i className="bi bi-download me-2" />
-            Download all class reports
-          </button>
-        ) : null}
+        <button type="button" className="btn btn-outline-brand" onClick={() => setBulkOpen(true)}>
+          <i className="bi bi-download me-2" />
+          Download all class reports
+        </button>
       </PageHeader>
 
       <div className="card-soft mb-3">
@@ -386,7 +384,7 @@ export default function Reports() {
                 onChange={(event) => setGenerateForm((prev) => ({ ...prev, downloadAll: event.target.checked }))}
               />
               <label className="form-check-label" htmlFor="download-all-generated">
-                Download all class reports as one ZIP after generating
+                Download all class reports as one PDF after generating (one student per page)
               </label>
             </div>
           </div>
@@ -418,7 +416,7 @@ export default function Reports() {
         show={bulkOpen}
         onClose={() => setBulkOpen(false)}
         title="Download class report pack"
-        subtitle="Downloads a ZIP archive containing individual PDF report cards."
+        subtitle="Downloads one PDF with all selected class reports, one student per page."
         footer={
           <>
             <button type="button" className="btn btn-outline-brand" onClick={() => setBulkOpen(false)} disabled={downloading === 'bulk'}>
@@ -426,7 +424,7 @@ export default function Reports() {
             </button>
             <button type="submit" form="bulk-form" className="btn btn-brand" disabled={downloading === 'bulk'}>
               {downloading === 'bulk' ? <span className="spinner-border spinner-border-sm me-2" /> : <i className="bi bi-download me-2" />}
-              Download ZIP
+              Download PDF
             </button>
           </>
         }

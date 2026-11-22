@@ -142,12 +142,30 @@ export default function Settings() {
     setSystemSettings((prev) => ({ ...(prev || {}), studentRegistrationEnabled: next }));
     setRegistrationBusy(true);
     try {
-      const data = await patchSystemSettings(next);
-      setSystemSettings(data.systemSettings || { studentRegistrationEnabled: next });
+      const data = await patchSystemSettings({ studentRegistrationEnabled: next });
+      setSystemSettings(data.systemSettings || { ...systemSettings, studentRegistrationEnabled: next });
       setSystemError(null);
       toast('Student registration setting updated.');
     } catch (err) {
       setSystemSettings((prev) => ({ ...(prev || {}), studentRegistrationEnabled: previous }));
+      toast(err.message, 'danger');
+    } finally {
+      setRegistrationBusy(false);
+    }
+  };
+
+  const toggleLoginLock = async () => {
+    const previous = Boolean(systemSettings?.loginDisabledExceptSuperAdmin);
+    const next = !previous;
+    setSystemSettings((prev) => ({ ...(prev || {}), loginDisabledExceptSuperAdmin: next }));
+    setRegistrationBusy(true);
+    try {
+      const data = await patchSystemSettings({ loginDisabledExceptSuperAdmin: next });
+      setSystemSettings(data.systemSettings || { ...systemSettings, loginDisabledExceptSuperAdmin: next });
+      setSystemError(null);
+      toast(next ? 'Non–Super Admin logins disabled.' : 'Non–Super Admin logins enabled.');
+    } catch (err) {
+      setSystemSettings((prev) => ({ ...(prev || {}), loginDisabledExceptSuperAdmin: previous }));
       toast(err.message, 'danger');
     } finally {
       setRegistrationBusy(false);
@@ -577,22 +595,43 @@ export default function Settings() {
             {systemSettings === null ? (
               <Loading label="Loading system controls…" />
             ) : (
-              <div className="form-check form-switch">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  role="switch"
-                  id="student-registration-enabled"
-                  checked={Boolean(systemSettings.studentRegistrationEnabled)}
-                  onChange={toggleRegistration}
-                  disabled={registrationBusy}
-                />
-                <label className="form-check-label fw-650" htmlFor="student-registration-enabled">
-                  Student registration enabled
-                </label>
-                <div className="text-muted-2 mt-2" style={{ fontSize: '0.78rem' }}>
-                  When switched off, no user can register new students. The setting applies to both
-                  campuses; the API also enforces it.
+              <div className="d-flex flex-column gap-4">
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    role="switch"
+                    id="student-registration-enabled"
+                    checked={Boolean(systemSettings.studentRegistrationEnabled)}
+                    onChange={toggleRegistration}
+                    disabled={registrationBusy}
+                  />
+                  <label className="form-check-label fw-650" htmlFor="student-registration-enabled">
+                    Student registration enabled
+                  </label>
+                  <div className="text-muted-2 mt-2" style={{ fontSize: '0.78rem' }}>
+                    When switched off, no user can register new students. The setting applies to both
+                    campuses; the API also enforces it.
+                  </div>
+                </div>
+
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    role="switch"
+                    id="login-disabled-except-super-admin"
+                    checked={Boolean(systemSettings.loginDisabledExceptSuperAdmin)}
+                    onChange={toggleLoginLock}
+                    disabled={registrationBusy}
+                  />
+                  <label className="form-check-label fw-650" htmlFor="login-disabled-except-super-admin">
+                    Disable sign-in for all users except Super Admin
+                  </label>
+                  <div className="text-muted-2 mt-2" style={{ fontSize: '0.78rem' }}>
+                    When enabled, DOS, Head Teacher and Teacher accounts cannot sign in. Super Admin can
+                    still sign in to both campuses to manage the system. The API also enforces this.
+                  </div>
                 </div>
               </div>
             )}

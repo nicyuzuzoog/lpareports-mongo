@@ -102,7 +102,7 @@ export default function Login() {
         </div>
 
         <div className="login-brand-foot">
-          &copy; {new Date().getFullYear()} LPAREPORTS. All rights reserved. · Knowledge, Character, Service
+          &copy; {new Date().getFullYear()} LPAREPORTS. All rights reserved. · excellent working for success
         </div>
       </section>
 

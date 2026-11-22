@@ -8,6 +8,7 @@ import { publicUser } from '../lib/serialize.js';
 import { asyncHandler, HttpError } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
 import { authenticate } from '../middleware/auth.js';
+import { getSystemSettings } from '../lib/settings.js';
 
 const router = Router();
 
@@ -77,6 +78,12 @@ router.post(
     // A global account is scoped to the requested campus for this session;
     // ordinary accounts must already match that campus.
     const sessionUser = { ...user, isGlobal: user.isGlobal === true, campusId };
+
+    const systemSettings = await getSystemSettings();
+    if (systemSettings?.loginDisabledExceptSuperAdmin === true && !sessionUser.isGlobal) {
+      throw new HttpError(403, 'Sign-in is temporarily disabled for non–Super Admin accounts. Contact the Super Admin.');
+    }
+
     req.user = sessionUser;
     await writeAudit(req, {
       action: 'LOGIN',

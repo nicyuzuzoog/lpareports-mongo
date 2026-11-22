@@ -209,9 +209,10 @@ model Setting {
 
 /// Global switches; seeded with a single row whose id is "GLOBAL".
 model SystemSetting {
-  id                        String   @id
-  studentRegistrationEnabled Boolean @default(true)
-  updatedAt                 DateTime @updatedAt
+  id                          String   @id
+  studentRegistrationEnabled   Boolean  @default(true)
+  loginDisabledExceptSuperAdmin Boolean @default(false)
+  updatedAt                   DateTime @updatedAt
 }
 
 model AuditLog {

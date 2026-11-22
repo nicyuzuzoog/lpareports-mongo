@@ -7,7 +7,8 @@ import {
   getSettings,
   clearSettingsCache,
   getSystemSettings,
-  setStudentRegistrationEnabled
+  setStudentRegistrationEnabled,
+  setLoginDisabledExceptSuperAdmin
 } from '../lib/settings.js';
 import { DEFAULT_GRADING_SCALES } from '../lib/grading.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
@@ -59,13 +60,20 @@ router.get(
   })
 );
 
+function systemPayload(settings) {
+  return {
+    studentRegistrationEnabled: settings?.studentRegistrationEnabled === true,
+    loginDisabledExceptSuperAdmin: settings?.loginDisabledExceptSuperAdmin === true
+  };
+}
+
 // Convenience aliases for the global endpoints mounted at /api/system-settings.
 router.get(
   '/system-settings',
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const systemSettings = await getSystemSettings();
-    res.json({ systemSettings: { studentRegistrationEnabled: systemSettings?.studentRegistrationEnabled === true } });
+    res.json({ systemSettings: systemPayload(systemSettings) });
   })
 );
 
@@ -73,11 +81,36 @@ router.patch(
   '/system-settings',
   requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
-    const { studentRegistrationEnabled } = z
-      .object({ studentRegistrationEnabled: z.boolean() })
+    const data = z
+      .object({
+        studentRegistrationEnabled: z.boolean().optional(),
+        loginDisabledExceptSuperAdmin: z.boolean().optional()
+      })
+      .refine(
+        (value) =>
+          value.studentRegistrationEnabled !== undefined ||
+          value.loginDisabledExceptSuperAdmin !== undefined,
+        { message: 'Provide a system setting to update.' }
+      )
       .parse(req.body);
-    await setStudentRegistrationEnabled(studentRegistrationEnabled);
-    res.json({ systemSettings: { studentRegistrationEnabled } });
+
+    let systemSettings = await getSystemSettings();
+    if (data.studentRegistrationEnabled !== undefined) {
+      systemSettings = await setStudentRegistrationEnabled(data.studentRegistrationEnabled);
+    }
+    if (data.loginDisabledExceptSuperAdmin !== undefined) {
+      systemSettings = await setLoginDisabledExceptSuperAdmin(data.loginDisabledExceptSuperAdmin);
+    }
+
+    await writeAudit(req, {
+      action: 'UPDATE',
+      entity: 'SystemSetting',
+      entityId: 'GLOBAL',
+      description: 'Updated global system controls.',
+      after: systemPayload(systemSettings)
+    });
+
+    res.json({ systemSettings: systemPayload(systemSettings) });
   })
 );
 

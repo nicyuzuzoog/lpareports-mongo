@@ -80,6 +80,22 @@ export default function ReportCardView({ report }) {
           <span className="label">Average</span>
           <span className="value">{average}</span>
         </div>
+        {!isAnnual ? (
+          <>
+            <div className="report-info-row highlight">
+              <span className="label">Total marks</span>
+              <span className="value">
+                {summary.totalMarks === null || summary.totalMarks === undefined
+                  ? '—'
+                  : `${summary.totalMarks} / ${summary.expectedTotalMarks ?? '-'}`}
+              </span>
+            </div>
+            <div className="report-info-row highlight">
+              <span className="label">Pass %</span>
+              <span className="value">{summary.passPercentage === null || summary.passPercentage === undefined ? '—' : `${summary.passPercentage}%`}</span>
+            </div>
+          </>
+        ) : null}
       </section>
 
       {isAnnual ? (
@@ -123,33 +139,50 @@ export default function ReportCardView({ report }) {
         <table className="report-table">
           <thead>
             <tr>
-              <th style={{ width: isMidterm ? '8%' : '6%' }}>No</th>
-              <th className="left" style={{ width: isMidterm ? '52%' : '38%' }}>Subject</th>
-              <th style={{ width: isMidterm ? '20%' : '13%' }}>Mid-term</th>
-              {isMidterm ? null : <th style={{ width: '13%' }}>End-term</th>}
-              {isMidterm ? null : <th style={{ width: '15%' }}>Total</th>}
-              <th style={{ width: isMidterm ? '20%' : '15%' }}>Grade</th>
+              <th style={{ width: '5%' }}>No</th>
+              <th className="left" style={{ width: isMidterm ? '33%' : '26%' }}>Subject</th>
+              <th style={{ width: '10%' }}>Expected</th>
+              <th style={{ width: isMidterm ? '14%' : '10%' }}>Mid-term</th>
+              {isMidterm ? null : <th style={{ width: '10%' }}>End-term</th>}
+              {isMidterm ? null : <th style={{ width: '10%' }}>Total</th>}
+              <th style={{ width: isMidterm ? '14%' : '10%' }}>Grade</th>
+              <th style={{ width: isMidterm ? '10%' : '9%' }}>Result</th>
             </tr>
           </thead>
           <tbody>
             {marks.length ? (
-              marks.map((mark, index) => (
-                <tr key={mark.subjectId || mark.subject || index}>
-                  <td>{index + 1}</td>
-                  <td className="left subject-name">{mark.subject || '—'}</td>
-                  <td>{dash(mark.midtermScore)}</td>
-                  {isMidterm ? null : <td>{dash(mark.examScore)}</td>}
-                  {isMidterm ? null : <td className="fw-bold">{dash(mark.total)}</td>}
-                  <td className="fw-bold">{dash(mark.grade)}</td>
-                </tr>
-              ))
+              marks.map((mark, index) => {
+                const passed = mark.passed;
+                const result = passed === null || passed === undefined ? '—' : passed ? 'PASS' : 'FAIL';
+                return (
+                  <tr key={mark.subjectId || mark.subject || index}>
+                    <td>{index + 1}</td>
+                    <td className="left subject-name">{mark.subject || '—'}</td>
+                    <td>{dash(mark.expectedMark ?? 100)}</td>
+                    <td style={{ background: mark.midtermScore != null ? '#eef6ff' : undefined }}>{dash(mark.midtermScore)}</td>
+                    {isMidterm ? null : <td style={{ background: mark.examScore != null ? '#eef6ff' : undefined }}>{dash(mark.examScore)}</td>}
+                    {isMidterm ? null : <td className="fw-bold" style={{ background: mark.total != null ? '#eef6ff' : undefined }}>{dash(mark.total)}</td>}
+                    <td className="fw-bold">{dash(mark.grade)}</td>
+                    <td style={{ background: passed === true ? '#e9f7ef' : passed === false ? '#fff3cd' : undefined, color: passed === true ? '#1f7a4d' : passed === false ? '#a35c00' : undefined, fontWeight: 700 }}>{result}</td>
+                  </tr>
+                );
+              })
             ) : (
               <tr>
-                <td colSpan={isMidterm ? 4 : 6} className="empty">
+                <td colSpan={isMidterm ? 6 : 8} className="empty">
                   No assessment scores recorded.
                 </td>
               </tr>
             )}
+            {marks.length ? (
+              <tr className="report-overall-row">
+                <td className="left subject-name" colSpan="2">Total / Expected</td>
+                <td className="fw-bold">{dash(summary.expectedTotalMarks)}</td>
+                <td colSpan={isMidterm ? 1 : 3} className="fw-bold">{dash(summary.totalMarks)}</td>
+                <td className="fw-bold">{dash(summary.grade)}</td>
+                <td className="fw-bold">{summary.passPercentage === null || summary.passPercentage === undefined ? '—' : `${summary.passPercentage}%`}</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       )}
