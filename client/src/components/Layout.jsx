@@ -35,7 +35,7 @@ const NAV_SECTIONS = [
         to: '/classes',
         label: 'Classes',
         icon: 'bi-diagram-3-fill',
-        roles: ['SUPER_ADMIN', 'DOS']
+        roles: ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER']
       }
     ]
   },
