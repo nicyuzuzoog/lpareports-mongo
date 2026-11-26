@@ -88,7 +88,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole('SUPER_ADMIN', 'DOS'),
+  requireRole('SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'),
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
     const campusId = req.user.campusId;
@@ -123,7 +123,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole('SUPER_ADMIN', 'DOS'),
+  requireRole('SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'),
   asyncHandler(async (req, res) => {
     const data = updateSchema.parse(req.body);
     const campusId = req.user.campusId;
@@ -167,7 +167,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole('SUPER_ADMIN', 'DOS'),
+  requireRole('SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.schoolClass.findFirst({
       where: { id: req.params.id, campusId: req.user.campusId },

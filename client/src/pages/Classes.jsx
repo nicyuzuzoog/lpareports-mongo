@@ -25,6 +25,7 @@ export default function Classes() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
 
+  const canManage = ['SUPER_ADMIN', 'DOS', 'HEAD_TEACHER'].includes(user.role);
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
 
   const load = useCallback(() => {
@@ -42,7 +43,7 @@ export default function Classes() {
   }, [load]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!canManage) return;
     api
       .get('/users?status=active')
       .then((res) =>
@@ -53,7 +54,7 @@ export default function Classes() {
         )
       )
       .catch(() => {});
-  }, [isSuperAdmin]);
+  }, [canManage]);
 
   const grouped = useMemo(() => {
     const sorted = [...classes].sort(
@@ -133,7 +134,7 @@ export default function Classes() {
         title="Classes"
         subtitle="Nursery, Lower Primary and Upper Primary class structure."
       >
-        {isSuperAdmin ? (
+        {canManage ? (
           <button type="button" className="btn btn-brand" onClick={openCreate}>
             <i className="bi bi-plus-lg me-2" />
             Add class
@@ -148,9 +149,9 @@ export default function Classes() {
         <span className="term-pill">
           <i className="bi bi-people" /> {totalStudents} students
         </span>
-        {!isSuperAdmin ? (
+        {!canManage ? (
           <span className="term-pill">
-            <i className="bi bi-info-circle" /> Ask the Super Admin to add or change classes
+            <i className="bi bi-info-circle" /> Ask your campus DOS or Head Teacher to add or change classes
           </span>
         ) : null}
       </div>
@@ -202,7 +203,7 @@ export default function Classes() {
                           >
                             <i className="bi bi-graph-up" />
                           </Link>
-                          {isSuperAdmin ? (
+                          {canManage ? (
                             <>
                               <button
                                 type="button"
@@ -241,7 +242,7 @@ export default function Classes() {
               : 'No classes have been assigned to your section yet.'
           }
           action={
-            isSuperAdmin ? (
+            canManage ? (
               <button type="button" className="btn btn-brand btn-sm" onClick={openCreate}>
                 <i className="bi bi-plus-lg me-1" /> Add class
               </button>
