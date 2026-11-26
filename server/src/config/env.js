@@ -10,12 +10,18 @@ const origins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// MONGODB_URI is the primary name. The aliases keep older deployment notes
+// working without changing application code.
+const mongoUri =
+  process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL;
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 5000),
-  // MySQL connection string used by Prisma (mysql://user:pass@host:3306/db).
-  databaseUrl: process.env.DATABASE_URL,
+  // MongoDB Atlas connection string, e.g.
+  // mongodb+srv://USER:PASSWORD@cluster.mongodb.net/lpareports?retryWrites=true&w=majority
+  databaseUrl: mongoUri || 'mongodb://127.0.0.1:27017/lpareports',
   jwtSecret: process.env.JWT_SECRET || 'lpareports-development-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   clientOrigins: origins,
@@ -23,8 +29,14 @@ export const config = {
   schoolLogoUrl: process.env.SCHOOL_LOGO_URL || ''
 };
 
-if (!config.databaseUrl || !config.databaseUrl.startsWith('mysql://')) {
-  throw new Error('DATABASE_URL must be set to a MySQL connection string (mysql://...).');
+if (!/^mongodb(\+srv)?:\/\//i.test(config.databaseUrl)) {
+  throw new Error(
+    'MONGODB_URI must be set to a MongoDB connection string (mongodb:// or mongodb+srv://).'
+  );
+}
+
+if (config.isProduction && !mongoUri) {
+  throw new Error('MONGODB_URI must be set in production.');
 }
 
 if (config.isProduction && config.jwtSecret === 'lpareports-development-secret-change-me') {

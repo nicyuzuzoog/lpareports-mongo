@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { asyncHandler } from '../lib/http.js';
 import { getSettings } from '../lib/settings.js';
 import { averageOf } from '../lib/grading.js';

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
 import { authenticate, requireRole, allowedClassIds } from '../middleware/auth.js';

@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 
 const VALID_CAMPUSES = ['MAIN', 'RULINDO'];
 

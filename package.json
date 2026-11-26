@@ -9,8 +9,8 @@
     "build": "npm --prefix client run build",
     "start": "npm --prefix server start",
     "db:setup": "npm --prefix server run db:setup",
-    "db:push": "npm --prefix server run db:push",
-    "db:seed": "npm --prefix server run db:seed"
+    "db:seed": "npm --prefix server run db:seed",
+    "check:db": "npm --prefix server run check:db"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

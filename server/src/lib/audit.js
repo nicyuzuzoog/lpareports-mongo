@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 
 /**
  * Append an immutable entry to the audit trail. Never throws into the request

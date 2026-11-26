@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { defaultSettingsFor } from '../lib/grading.js';
 
 // One settings document (and one cache entry) per campus.

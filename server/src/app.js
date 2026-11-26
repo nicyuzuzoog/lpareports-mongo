@@ -38,20 +38,37 @@ app.use(
 const vercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
 const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS !== 'false';
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (config.clientOrigins.includes(origin)) return callback(null, true);
-      if (allowVercelPreviews && vercelPreview.test(origin)) return callback(null, true);
-      return callback(new Error('Origin not allowed by CORS.'));
-    },
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Disposition'],
-    maxAge: 86400
-  })
-);
+// The React build calls `${API_BASE}/api` on the same domain it is served
+// from. Browsers still send an `Origin` header on POST/PATCH/etc., so treat
+// that origin as allowed even if CLIENT_ORIGINS was never updated for the
+// production domain. This prevents a CORS error from surfacing as a 500.
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  const host = req.get('host');
+  if (origin && host) {
+    const proto = (req.get('x-forwarded-proto') || req.protocol).split(',')[0].trim();
+    req.isSameOrigin = origin === `${proto}://${host}`;
+  }
+  next();
+});
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (config.clientOrigins.includes(origin)) return callback(null, true);
+    if (allowVercelPreviews && vercelPreview.test(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed by CORS.'));
+  },
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Disposition'],
+  maxAge: 86400
+};
+
+app.use((req, res, next) => {
+  if (req.isSameOrigin) return next();
+  return cors(corsOptions)(req, res, next);
+});
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -102,7 +119,8 @@ app.use((error, req, res, next) => {
     });
   }
 
-  if (error?.code === 'P2002') {
+  // Mongoose duplicate-key errors (MongoDB E11000) replace Prisma's P2002.
+  if (error?.code === 11000 || error?.code === 'P2002') {
     return res.status(409).json({ message: 'A record with these details already exists.' });
   }
   if (error?.code === 'P2025') {

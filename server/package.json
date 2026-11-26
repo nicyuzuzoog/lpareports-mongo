@@ -3,19 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "LPAREPORTS API - authentication, assessments, report cards, approvals, audit trail (MySQL).",
+  "description": "LPAREPORTS API - authentication, assessments, report cards, approvals, audit trail (MongoDB Atlas).",
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "postinstall": "prisma generate",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:setup": "prisma db push && node prisma/seed.js",
-    "db:seed": "node prisma/seed.js"
+    "db:setup": "node ./scripts/seed.js",
+    "db:seed": "node ./scripts/seed.js",
+    "check:db": "node ./scripts/check-db.mjs"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.2",
     "compression": "^1.8.1",
@@ -25,17 +22,12 @@
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.24.10",
     "morgan": "^1.10.0",
     "pdfkit": "^0.17.2",
-    "prisma": "^6.19.3",
     "zod": "^4.1.5"
   },
   "engines": {
     "node": ">=20"
-  },
-  "allowScripts": {
-    "@prisma/client@6.19.3": true,
-    "prisma@6.19.3": true,
-    "@prisma/engines@6.19.3": true
   }
 }

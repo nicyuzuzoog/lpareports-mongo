@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { signToken } from '../lib/jwt.js';
 import { publicUser } from '../lib/serialize.js';
 import { asyncHandler, HttpError } from '../lib/http.js';

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
@@ -28,8 +28,7 @@ router.get(
     const where = { campusId: req.user.campusId };
     if (active === 'true') where.isActive = true;
 
-    // Subject.levels is a JSON array in MySQL; filter in JS rather than using
-    // Prisma's unsupported `has` operator on Json fields.
+    // Subject.levels is an array; filter in JS for identical behavior.
     const subjects = await prisma.subject.findMany({
       where,
       orderBy: [{ position: 'asc' }, { name: 'asc' }]

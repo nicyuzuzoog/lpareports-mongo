@@ -1,6 +1,10 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcryptjs';
-import { prisma } from '../src/lib/prisma.js';
+import { prisma } from '../src/lib/db.js';
+import { config } from '../src/config/env.js';
 import {
   CAMPUSES,
   defaultSettingsFor,
@@ -8,13 +12,6 @@ import {
   gradeFor,
   assessmentCompetency
 } from '../src/lib/grading.js';
-
-if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('mysql://')) {
-  console.error('Set DATABASE_URL to your MySQL connection string (mysql://...) before seeding.');
-  process.exit(1);
-}
-
-await prisma.$connect();
 
 const CLASSES = [
   { name: 'Baby Class', level: 'NURSERY' },
@@ -502,8 +499,9 @@ async function seedCampus(campus, passwordHashes) {
   });
 }
 
-async function main() {
-  console.log('Seeding LPAREPORTS...');
+export async function seedAll() {
+  console.log(`Seeding LPAREPORTS into MongoDB (${config.env})...`);
+  await prisma.$connect();
 
   // Hash each distinct password exactly once.
   const passwordHashes = {};
@@ -531,14 +529,20 @@ async function main() {
     }
   }
 
-  console.log('\nReminder: `npm run db:setup` creates the MySQL tables before seeding.');
+  console.log('\nMongoDB seed complete. No table creation step is needed.');
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+const isDirectRun =
+  process.argv[1] &&
+  resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]);
+
+if (isDirectRun) {
+  seedAll()
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

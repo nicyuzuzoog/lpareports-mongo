@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { asyncHandler, HttpError } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
 import {
@@ -55,7 +55,7 @@ router.get(
     });
     if (!schoolClass) throw new HttpError(404, 'Class not found.');
 
-    // Subject.levels is Json in MySQL - filter the array in JavaScript.
+    // Subject.levels is stored as an array; filter it in JavaScript.
     let subjects = await prisma.subject.findMany({
       where: {
         campusId: req.user.campusId,

@@ -10,9 +10,9 @@ services:
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      # MySQL connection string from cPanel, e.g. mysql://user:pass@HOST:3306/db
-      # Use the public database hostname here; "localhost" only works on the hosting server.
-      - key: DATABASE_URL
+      # MongoDB Atlas URI, including the database name. Set this in Render.
+      # Example: mongodb+srv://USER:PASSWORD@cluster.mongodb.net/lpareports?retryWrites=true&w=majority
+      - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET
         generateValue: true
@@ -22,6 +22,7 @@ services:
         value: production
       - key: NODE_VERSION
         value: "22"
+      # Your Vercel frontend origin, e.g. https://lpareports.vercel.app
       - key: CLIENT_ORIGINS
         sync: false
       - key: ALLOW_VERCEL_PREVIEWS

@@ -5,10 +5,10 @@ A full-stack school report-card and assessment system for **Nursery**, **Lower P
 - **MAIN — LIGHT PEACE ACADEMY**
 - **RULINDO — LIGHT PEACE ACADEMY RULINDO**
 
-- **API:** Node.js, Express 4, Prisma 6, **MySQL**
+- **API:** Node.js, Express 4, Mongoose 8, **MongoDB Atlas**
 - **Web app:** React 19, Vite 7, Bootstrap 5, Bootstrap Icons
-- **PDF:** server-side PDFKit report cards (single + bulk ZIP), one A4 page each
-- **Deploy:** API on Render, MySQL in cPanel, frontend on Vercel
+- **PDF:** server-side PDFKit report cards (single + one-PDF class pack), one A4 page each
+- **Deploy:** API on Render, frontend on Vercel, MongoDB Atlas as the only database
 
 The interface is flat, clean and professional. Report cards follow a standard Rwandan primary layout and are designed to be printed and sent home with the learner.
 
@@ -100,6 +100,7 @@ There are three report types, one report per learner per period:
 ```
 lpareports/
 ├── client/                  React + Vite frontend
+│   ├── vercel.json          proxies /api to the Render service
 │   └── src/
 │       ├── api/             fetch wrapper + downloads (lpareports_token)
 │       ├── components/      layout, modal, single-page report card, feedback
@@ -110,13 +111,15 @@ lpareports/
 │       ├── styles/app.css   flat design + one-page print rules
 │       └── utils/
 ├── server/                  Express API
-│   ├── prisma/
-│   │   ├── schema.prisma    MySQL data model
-│   │   └── seed.js          idempotent two-campus seed
+│   ├── scripts/
+│   │   ├── seed.js          idempotent two-campus MongoDB seed
+│   │   └── check-db.mjs     connection/count verification
 │   └── src/
 │       ├── assets/logo.jpeg
-│       ├── config/          environment (DATABASE_URL)
-│       ├── lib/             Prisma facade, settings, jwt, audit, grading, PDF
+│       ├── config/          environment (MONGODB_URI)
+│       ├── lib/             Mongoose repository facade, settings, jwt,
+│       │                    audit, grading, PDF, bootstrap auto-seed
+│       ├── models/          Mongoose schemas and indexes
 │       ├── middleware/      auth + role guards
 │       ├── routes/          auth, users, classes, subjects, students,
 │       │                    assessments, reports, analytics, dashboard,
@@ -124,7 +127,6 @@ lpareports/
 │       ├── services/        report computation and ranking
 │       ├── app.js
 │       └── index.js
-├── docker-compose.yml       local MySQL 8 for development
 ├── render.yaml              Render blueprint (lpareports-api)
 └── package.json             root convenience scripts
 ```
@@ -136,19 +138,19 @@ lpareports/
 ### Requirements
 
 - Node.js **20+** (tested on Node 24)
-- A MySQL 8 database (cPanel-hosted or local via `docker compose up -d`)
+- MongoDB (local `mongod` or a MongoDB Atlas URI)
 
 ### Steps
 
 ```bash
-# 1. Install all dependencies (also generates the Prisma client)
+# 1. Install dependencies
 npm run install:all
 
-# 2. Create server/.env from the example and set DATABASE_URL
+# 2. Create server/.env from the example and set MONGODB_URI
 cp server/.env.example server/.env
-#   DATABASE_URL="mysql://USER:PASSWORD@HOST:3306/DATABASE_NAME"
+#   MONGODB_URI="mongodb://127.0.0.1:27017/lpareports"
 
-# 3. Create the tables and load the demo data (idempotent)
+# 3. Load the demo data (idempotent; no table creation step needed)
 npm run db:setup
 
 # 4. Start the API and web app
@@ -159,22 +161,21 @@ Useful scripts:
 
 | Command | Purpose |
 | --- | --- |
-| `npm run db:generate` | Regenerate the Prisma client after editing `schema.prisma` |
-| `npm run db:push` | Create/update tables from the schema (no migration files) |
 | `npm run db:seed` | Re-seed demo data only (safe to run repeatedly) |
-| `npm run db:setup` | `db:push` + `db:seed` |
+| `npm run db:setup` | Alias for `db:seed` (kept for existing workflows) |
+| `npm run check:db` | Verify the MongoDB connection and record counts |
 
-> **MySQL host note:** the host given by cPanel may be `localhost`. That works only when the app runs **on the same hosting server**. If the API runs elsewhere (e.g. Render), replace `localhost` with the public hostname/IP of the MySQL server and enable remote MySQL access in cPanel.
+> **No Prisma, no SQL.** Mongoose creates collections and indexes automatically on first connect. An empty database is seeded automatically on first API boot, so Render needs no manual database command.
 
 ### Configuration (`server/.env`)
 
 ```env
-DATABASE_URL="mysql://USER:PASSWORD@HOST:3306/DATABASE_NAME"
+MONGODB_URI="mongodb+srv://USER:PASSWORD@cluster.mongodb.net/lpareports?retryWrites=true&w=majority"
 JWT_SECRET="a-long-random-secret"
 JWT_EXPIRES_IN="12h"
-CLIENT_ORIGINS="http://localhost:5173"
+CLIENT_ORIGINS="https://your-app.vercel.app"
 PORT=5000
-NODE_ENV=development
+NODE_ENV=production
 # SCHOOL_LOGO_URL=""
 ```
 
@@ -185,16 +186,18 @@ NODE_ENV=development
 ### API on Render
 
 - Use `render.yaml` or create a Web Service with root directory `server`.
-- Build: `npm install` (the `postinstall` script runs `prisma generate`).
+- Build: `npm install` (no Prisma generation step).
 - Start: `npm start`.
-- Set environment variables: `DATABASE_URL`, `JWT_SECRET`, `CLIENT_ORIGINS`, `JWT_EXPIRES_IN`, `NODE_ENV=production`.
-- Create the tables once with `npm run db:push`, then load demo data once with `npm run db:seed` (from the Render shell or any machine that can reach MySQL).
+- Set environment variables: `MONGODB_URI`, `JWT_SECRET`, `CLIENT_ORIGINS`, `JWT_EXPIRES_IN`, `NODE_ENV=production`.
+- On first boot, an empty database is seeded automatically. To refresh demo data later, run `npm run db:setup` from the Render shell.
 
 ### Web app on Vercel
 
 - Root directory: `client`.
 - Build command: `npm run build`; output directory: `dist`.
-- Set `VITE_API_URL` to the Render API URL.
+- `vercel.json` rewrites `/api/*` to `https://lpareports-api.onrender.com/api/*`.
+  If your Render service has a different name, change that one URL in `client/vercel.json`.
+- Do **not** set `VITE_API_URL` unless you want to bypass the rewrite; the default `/api` is correct.
 
 ### Repository
 

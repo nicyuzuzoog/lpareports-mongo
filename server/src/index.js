@@ -1,12 +1,14 @@
 import app from './app.js';
 import { config } from './config/env.js';
-import { prisma } from './lib/prisma.js';
+import { prisma } from './lib/db.js';
+import { ensureSeeded } from './lib/bootstrap.js';
 
 async function start() {
   try {
     await prisma.$connect();
+    await ensureSeeded();
   } catch (error) {
-    console.error('Unable to connect to MySQL:', error.message);
+    console.error('Unable to connect to MongoDB:', error.message);
     process.exit(1);
   }
 

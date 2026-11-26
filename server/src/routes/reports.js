@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 // archiver no longer used: class reports are delivered as a single PDF.
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/db.js';
 import { asyncHandler, HttpError, notFound } from '../lib/http.js';
 import { writeAudit } from '../lib/audit.js';
 import { getSettings } from '../lib/settings.js';
@@ -303,7 +303,7 @@ router.post(
       prisma.student.findMany({
         where: { campusId, classId: data.classId, isActive: true }
       }),
-      // Subject.levels is Json in MySQL - filter the level array in JS.
+      // Subject.levels is an array - filter the level array in JS.
       prisma.subject.findMany({
         where: { campusId, isActive: true },
         orderBy: { position: 'asc' }
