@@ -67,7 +67,7 @@ export default function App() {
         <Route
           path="classes"
           element={
-            <Protected roles={ACADEMIC_MANAGERS}>
+            <Protected roles={MANAGERS}>
               <Classes />
             </Protected>
           }
