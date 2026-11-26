@@ -33,7 +33,7 @@ const LEVEL_TITLES = {
   UPPER_PRIMARY: 'Upper Primary'
 };
 
-const ROW_HEIGHT = 16;
+const ROW_HEIGHT = 17;
 
 /** Rwandan grade colours: A/B green, C/D normal, E/S/F warning. */
 function gradeColor(grade) {
@@ -76,13 +76,13 @@ function drawSchoolHeader(doc, payload, settings) {
     });
   doc.font('Helvetica-Oblique').fontSize(8).fillColor(COLORS.green)
     .text(motto, textX, 52, { width: textWidth, align: 'center', lineBreak: false });
-  doc.font('Helvetica').fontSize(7.2).fillColor(COLORS.muted)
+  doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted)
     .text(`${address}  |  Tel: ${school.phone || '-'}  |  ${school.email || '-'}`, textX, 64, {
       width: textWidth,
       align: 'center',
       lineBreak: false
     });
-  doc.font('Helvetica-Bold').fontSize(7).fillColor(COLORS.muted)
+  doc.font('Helvetica-Bold').fontSize(7.8).fillColor(COLORS.muted)
     .text('OFFICE OF THE HEAD TEACHER', textX, 76, {
       width: textWidth,
       align: 'center',
@@ -134,21 +134,21 @@ function studentPanel(doc, payload, y) {
 
   rows.forEach((row, index) => {
     const rowY = y + 7 + index * 18;
-    doc.font('Helvetica-Bold').fontSize(6.2).fillColor(COLORS.muted)
+    doc.font('Helvetica-Bold').fontSize(7.4).fillColor(COLORS.muted)
       .text(row[0], PAGE.margin + 12, rowY, { width: 76, lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(8.2).fillColor(COLORS.ink)
+    doc.font('Helvetica-Bold').fontSize(9.4).fillColor(COLORS.ink)
       .text(String(row[1] || '-'), PAGE.margin + 90, rowY - 1.2, {
         width: colWidth - 100,
         lineBreak: false,
         ellipsis: true
       });
-    doc.font('Helvetica-Bold').fontSize(6.2).fillColor(COLORS.muted)
+    doc.font('Helvetica-Bold').fontSize(7.4).fillColor(COLORS.muted)
       .text(row[2], PAGE.margin + colWidth + 8, rowY, { width: 76, lineBreak: false });
     const isPassPct = row[2] === 'PASS %';
     const passColor = isPassPct && passPct !== null && passPct !== undefined
       ? (Number(passPct) >= 50 ? COLORS.green : COLORS.amber)
       : COLORS.ink;
-    doc.font('Helvetica-Bold').fontSize(8.2).fillColor(passColor)
+    doc.font('Helvetica-Bold').fontSize(9.4).fillColor(passColor)
       .text(String(row[3] || '-'), PAGE.margin + colWidth + 86, rowY - 1.2, {
         width: colWidth - 96,
         lineBreak: false,
@@ -167,7 +167,7 @@ function drawColumns(doc, columns, y, height = 18) {
   });
   doc.rect(PAGE.margin, y, PAGE.contentWidth, height).fill(COLORS.navy);
   columns.forEach((column, index) => {
-    doc.font('Helvetica-Bold').fontSize(6.8).fillColor(COLORS.white)
+    doc.font('Helvetica-Bold').fontSize(7.8).fillColor(COLORS.white)
       .text(column.label, xs[index] + 3, y + 5.5, {
         width: column.width - 6,
         align: column.align || 'center',
@@ -179,7 +179,7 @@ function drawColumns(doc, columns, y, height = 18) {
 
 function cell(doc, text, x, y, width, align, options = {}) {
   doc.font(options.font || 'Helvetica')
-    .fontSize(options.size || 7.4)
+    .fontSize(options.size || 8.6)
     .fillColor(options.color || COLORS.ink)
     .text(String(text ?? '-'), x + 3, y + 4.5, {
       width: width - 6,
@@ -348,7 +348,7 @@ function annualTable(doc, payload, startY) {
   cells.forEach(([label, value, color], index) => {
     const x = PAGE.margin + index * cellWidth;
     if (index > 0) doc.moveTo(x, y + 6).lineTo(x, y + height - 6).lineWidth(0.4).stroke('#c9d6e3');
-    doc.font('Helvetica-Bold').fontSize(6.3).fillColor(COLORS.muted)
+    doc.font('Helvetica-Bold').fontSize(7.4).fillColor(COLORS.muted)
       .text(label, x + 6, y + 7, { width: cellWidth - 12, align: 'center', lineBreak: false });
     doc.font('Helvetica-Bold').fontSize(13).fillColor(color)
       .text(String(value), x + 6, y + 19, { width: cellWidth - 12, align: 'center', lineBreak: false });
@@ -368,13 +368,13 @@ function signatures(doc, payload, settings) {
     doc.moveTo(x + 4, y).lineTo(x + columnWidth - 20, y).lineWidth(0.6).stroke(COLORS.ink);
   });
 
-  doc.font('Helvetica-Bold').fontSize(7.6).fillColor(COLORS.ink)
+  doc.font('Helvetica-Bold').fontSize(8.4).fillColor(COLORS.ink)
     .text(`Class Teacher: ${classTeacher}`, PAGE.margin + 4, y + 5, {
       width: columnWidth - 24,
       lineBreak: false,
       ellipsis: true
     });
-  doc.font('Helvetica-Bold').fontSize(7.6).fillColor(COLORS.ink)
+  doc.font('Helvetica-Bold').fontSize(8.4).fillColor(COLORS.ink)
     .text(`Head Teacher: ${headName}`, PAGE.margin + columnWidth + 4, y + 5, {
       width: columnWidth - 24,
       lineBreak: false,
@@ -388,7 +388,7 @@ function footer(doc, payload) {
   const y = PAGE.height - 58;
   doc.moveTo(PAGE.margin, y).lineTo(PAGE.margin + PAGE.contentWidth, y)
     .lineWidth(0.4).stroke(COLORS.line);
-  doc.font('Helvetica').fontSize(6.5).fillColor(COLORS.muted)
+  doc.font('Helvetica').fontSize(7.4).fillColor(COLORS.muted)
     .text(`LPAREPORTS  |  ${payload.typeLabel || 'Term'}`, PAGE.margin, y + 6, {
       width: PAGE.contentWidth,
       align: 'center',

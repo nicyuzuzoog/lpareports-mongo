@@ -10,6 +10,7 @@
     "start": "node src/index.js",
     "db:setup": "node ./scripts/seed.js",
     "db:seed": "node ./scripts/seed.js",
+    "db:clean": "node ./scripts/clean-db.js",
     "check:db": "node ./scripts/check-db.mjs"
   },
   "dependencies": {

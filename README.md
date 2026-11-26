@@ -160,6 +160,7 @@ Useful scripts:
 | --- | --- |
 | `npm run db:seed` | Re-seed the owner account and settings only (safe to run repeatedly) |
 | `npm run db:setup` | Alias for `db:seed` (kept for existing workflows) |
+| `npm run db:clean` | Destructive: delete everything except the owner account and settings, then reseed |
 | `npm run check:db` | Verify the MongoDB connection and record counts |
 
 > **No Prisma, no SQL.** Mongoose creates collections and indexes automatically on first connect. An empty database is seeded automatically on first API boot, so Render needs no manual database command.

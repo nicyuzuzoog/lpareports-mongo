@@ -47,7 +47,9 @@ On the first boot, if the database is empty, the API seeds it automatically
 with one global Super Admin (`nicjbdede@gmail.com`) and the required settings.
 No demo staff, students, classes or reports are created. No `db:push` and no
 manual seed command are required. To refresh the owner account and settings
-later, open the Render shell and run `npm run db:setup`.
+later, open the Render shell and run `npm run db:setup`. For a database that
+already contains demo data, `npm run db:clean` permanently deletes everything
+except that owner account and the settings, then reseeds them.
 
 **Important:** the default API URL used by Vercel is
 `https://lpareports-mongo.onrender.com`. If your Render service has another
