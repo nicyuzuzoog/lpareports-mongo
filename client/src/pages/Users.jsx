@@ -5,7 +5,7 @@ import { useToast } from '../components/Toast.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Modal from '../components/Modal.jsx';
 import { EmptyState, ErrorAlert, Loading } from '../components/Feedback.jsx';
-import { ROLES } from '../utils/constants.js';
+import { CAMPUSES, ROLES } from '../utils/constants.js';
 import { formatDate, initials, levelLabel, roleLabel } from '../utils/format.js';
 
 const EMPTY_FORM = {
@@ -14,6 +14,7 @@ const EMPTY_FORM = {
   phone: '',
   password: '',
   role: 'TEACHER',
+  campusId: 'MAIN',
   classTeacherClassId: '',
   classIds: [],
   subjectIds: [],
@@ -95,7 +96,7 @@ export default function Users() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, campusId: currentUser.campusId || 'MAIN' });
     setFormOpen(true);
   };
 
@@ -107,6 +108,7 @@ export default function Users() {
       phone: account.phone || '',
       password: '',
       role: account.role,
+      campusId: account.campusId || currentUser.campusId || 'MAIN',
       classTeacherClassId: account.classTeacherClassId || '',
       classIds: account.classes.map((item) => item.id),
       subjectIds: account.subjects.map((item) => item.id),
@@ -146,6 +148,7 @@ export default function Users() {
         email: form.email.trim(),
         phone: form.phone.trim() || null,
         role: form.role,
+        campusId: isSuperAdmin ? form.campusId : undefined,
         classTeacherClassId: form.role === 'TEACHER' ? form.classTeacherClassId || null : null,
         classIds: form.role === 'TEACHER' ? form.classIds : [],
         subjectIds: form.role === 'TEACHER' ? form.subjectIds : [],
@@ -513,6 +516,30 @@ export default function Users() {
                 : 'You can only create Teacher accounts.'}
             </div>
           </div>
+          {isSuperAdmin ? (
+            <div className="col-md-6">
+              <label className="form-label">Campus / Location *</label>
+              <select
+                className="form-select"
+                value={form.campusId}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, campusId: event.target.value, classTeacherClassId: '', classIds: [], subjectIds: [] }))
+                }
+                disabled={editing?.isGlobal === true}
+              >
+                {CAMPUSES.map((campus) => (
+                  <option key={campus.value} value={campus.value}>
+                    {campus.label}
+                  </option>
+                ))}
+              </select>
+              <div className="text-muted-2 mt-1" style={{ fontSize: '0.72rem' }}>
+                {editing?.isGlobal
+                  ? 'The Super Admin account is global and has access to both campuses.'
+                  : 'Choose MAIN (Gisozi) or BRANCH (Rulindo) for this user. Changing campus clears class/subject assignments.'}
+              </div>
+            </div>
+          ) : null}
           <div className="col-md-3">
             <label className="form-label">Status</label>
             <select

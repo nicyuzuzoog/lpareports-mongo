@@ -31,6 +31,7 @@ const createSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters.'),
   phone: z.string().trim().max(30).optional().nullable(),
   role: roleSchema,
+  campusId: z.enum(['MAIN', 'RULINDO']).optional(),
   classIds: z.array(z.string()).default([]),
   subjectIds: z.array(z.string()).default([]),
   canDelete: z.boolean().optional(),
@@ -44,6 +45,7 @@ const updateSchema = z.object({
   password: z.string().min(8).optional(),
   phone: z.string().trim().max(30).optional().nullable(),
   role: roleSchema.optional(),
+  campusId: z.enum(['MAIN', 'RULINDO']).optional(),
   classIds: z.array(z.string()).optional(),
   subjectIds: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
@@ -155,7 +157,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const data = createSchema.parse(req.body);
     assertCanManageRole(req.user, data.role);
-    const campusId = req.user.campusId;
+    // Super Admin can place DOS/Head Teacher/Teacher on either campus.
+    // DOS stays campus-scoped and can only create users on their own campus.
+    const campusId =
+      req.user.role === 'SUPER_ADMIN' ? data.campusId || req.user.campusId : req.user.campusId;
 
     const homeClassId = data.classTeacherClassId || null;
     const classIds = [...data.classIds];
@@ -163,7 +168,7 @@ router.post(
     await assertTeacherAssignments(campusId, data.role, classIds, data.subjectIds);
 
     const existing = await prisma.user.findFirst({ where: { campusId, email: data.email } });
-    if (existing) throw new HttpError(409, 'A user with this email already exists.');
+    if (existing) throw new HttpError(409, 'A user with this email already exists on this campus.');
 
     const user = await prisma.user.create({
       data: {
@@ -216,6 +221,20 @@ router.patch(
     const nextRole = data.role ?? existing.role;
     assertCanManageRole(req.user, existing.role, nextRole);
 
+    // Super Admin may move non-global accounts between MAIN and BRANCH.
+    const targetCampusId =
+      req.user.role === 'SUPER_ADMIN' && !existing.isGlobal && data.campusId
+        ? data.campusId
+        : campusId;
+    if (targetCampusId !== campusId) {
+      if (existing.isGlobal) throw new HttpError(400, 'The global Super Admin cannot be moved to a campus.');
+      if (nextRole === 'SUPER_ADMIN') throw new HttpError(400, 'Super Admin accounts are global; do not assign them to a campus.');
+      const duplicate = await prisma.user.findFirst({
+        where: { campusId: targetCampusId, email: data.email ?? existing.email }
+      });
+      if (duplicate) throw new HttpError(409, 'A user with this email already exists on the target campus.');
+    }
+
     const previousHomeClassId = existing.classTeacherClassId || null;
     const homeClassProvided = Object.prototype.hasOwnProperty.call(data, 'classTeacherClassId');
     const nextHomeClassId = homeClassProvided ? data.classTeacherClassId || null : previousHomeClassId;
@@ -223,13 +242,13 @@ router.patch(
     const nextClassIds = data.classIds ?? existing.classes.map((entry) => entry.classId);
     if (nextHomeClassId && !nextClassIds.includes(nextHomeClassId)) nextClassIds.push(nextHomeClassId);
     const nextSubjectIds = data.subjectIds ?? existing.subjects.map((entry) => entry.subjectId);
-    await assertTeacherAssignments(campusId, nextRole, nextClassIds, nextSubjectIds);
+    await assertTeacherAssignments(targetCampusId, nextRole, nextClassIds, nextSubjectIds);
 
     if (data.role && data.role !== 'SUPER_ADMIN') await assertNotLastSuperAdmin(existing.id, campusId);
     if (data.isActive === false) await assertNotLastSuperAdmin(existing.id, campusId);
     if (data.email && data.email !== existing.email) {
-      const duplicate = await prisma.user.findFirst({ where: { campusId, email: data.email } });
-      if (duplicate) throw new HttpError(409, 'A user with this email already exists.');
+      const duplicate = await prisma.user.findFirst({ where: { campusId: targetCampusId, email: data.email } });
+      if (duplicate) throw new HttpError(409, 'A user with this email already exists on this campus.');
     }
     if (existing.id === req.user.id && data.isActive === false) {
       throw new HttpError(400, 'You cannot deactivate your own account.');
@@ -238,10 +257,13 @@ router.patch(
       throw new HttpError(403, 'Only the Super Admin can assign the Super Admin role.');
     }
 
-    await syncClassTeacher(campusId, existing.id, nextHomeClassId, previousHomeClassId);
+    await syncClassTeacher(campusId, existing.id, null, previousHomeClassId);
+    if (targetCampusId === campusId) {
+      await syncClassTeacher(campusId, existing.id, nextHomeClassId, null);
+    }
 
     const update = {
-      campusId,
+      campusId: targetCampusId,
       name: data.name ?? existing.name,
       email: data.email ?? existing.email,
       phone: data.phone === undefined ? existing.phone : data.phone || null,
@@ -256,25 +278,29 @@ router.patch(
       where: { id: existing.id, campusId },
       data: {
         ...update,
-        ...(data.classIds || homeClassProvided
+        ...(data.classIds || homeClassProvided || targetCampusId !== campusId
           ? {
               classes: {
                 deleteMany: {},
-                create: nextClassIds.map((classId) => ({ id: randomUUID(), campusId, classId }))
+                create: nextClassIds.map((classId) => ({ id: randomUUID(), campusId: targetCampusId, classId }))
               }
             }
           : {}),
-        ...(data.subjectIds
+        ...(data.subjectIds || targetCampusId !== campusId
           ? {
               subjects: {
                 deleteMany: {},
-                create: data.subjectIds.map((subjectId) => ({ id: randomUUID(), campusId, subjectId }))
+                create: nextSubjectIds.map((subjectId) => ({ id: randomUUID(), campusId: targetCampusId, subjectId }))
               }
             }
           : {})
       },
       include
     });
+
+    if (targetCampusId !== campusId) {
+      await syncClassTeacher(targetCampusId, user.id, nextHomeClassId, null);
+    }
 
     await writeAudit(req, {
       action: 'UPDATE',
