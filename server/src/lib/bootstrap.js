@@ -6,7 +6,7 @@ import { prisma } from './db.js';
  * A fresh MongoDB Atlas database has no collections. Seed it automatically
  * once so the deployed app is usable immediately, while leaving an existing
  * database completely untouched. `npm run db:setup` still does the same thing
- * explicitly when you want to refresh the demo records.
+ * explicitly when you want to refresh the owner account and settings.
  */
 let seeding;
 

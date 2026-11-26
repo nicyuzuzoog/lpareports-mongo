@@ -18,21 +18,18 @@ The interface is flat, clean and professional. Report cards follow a standard Rw
 
 ### Accounts and campuses
 
-- The **Super Admin is a single global account** (`superadmin@lpareports.rw`). On the login screen, choose either campus — the same account opens that campus's data.
+- The **Super Admin is a single global account** (`nicjbdede@gmail.com`). On the login screen, choose either campus — the same account opens that campus's data.
 - Everyone else (DOS, Head Teacher, Teacher) belongs to one campus only. All students, classes, subjects, marks, reports, settings and audit entries are strictly campus-scoped.
-- Demo credentials ( seeded by `npm run db:setup` ):
+- `npm run db:setup` seeds **only** this account plus the required campus/global settings:
 
   | Campus | Role | Email | Password |
   | --- | --- | --- | --- |
-  | Either | Super Admin (global) | `superadmin@lpareports.rw` | `Admin@1234` |
-  | MAIN | DOS | `dos@lpareports.rw` | `Dos@12345` |
-  | MAIN | Head Teacher | `head@lpareports.rw` | `Head@12345` |
-  | MAIN | Teacher | `teacher@lpareports.rw` | `Teacher@123` |
-  | RULINDO | DOS | `dos.rulindo@lpareports.rw` | `Dos@12345` |
-  | RULINDO | Head Teacher | `head.rulindo@lpareports.rw` | `Head@12345` |
-  | RULINDO | Teacher | `teacher.rulindo@lpareports.rw` | `Teacher@123` |
+  | Either | Super Admin (global) | `nicjbdede@gmail.com` | `Admin@1234` |
 
-  Additional demo teachers `teacher2`, `teacher3`, `teacher4` exist on both campuses with `Teacher@123`.
+  No demo staff, students, classes, subjects or report cards are created. Add
+  those from the interface after signing in. Use `SEED_ADMIN_EMAIL`,
+  `SEED_ADMIN_NAME` or `SEED_ADMIN_PASSWORD` in the environment to override the
+  seeded identity without editing code.
 
 ### Role rules
 
@@ -127,7 +124,7 @@ lpareports/
 │       ├── services/        report computation and ranking
 │       ├── app.js
 │       └── index.js
-├── render.yaml              Render blueprint (lpareports-api)
+├── render.yaml              Render blueprint (lpareports-mongo)
 └── package.json             root convenience scripts
 ```
 
@@ -150,7 +147,7 @@ npm run install:all
 cp server/.env.example server/.env
 #   MONGODB_URI="mongodb://127.0.0.1:27017/lpareports"
 
-# 3. Load the demo data (idempotent; no table creation step needed)
+# 3. Load the owner account and settings (idempotent; no table creation step needed)
 npm run db:setup
 
 # 4. Start the API and web app
@@ -161,7 +158,7 @@ Useful scripts:
 
 | Command | Purpose |
 | --- | --- |
-| `npm run db:seed` | Re-seed demo data only (safe to run repeatedly) |
+| `npm run db:seed` | Re-seed the owner account and settings only (safe to run repeatedly) |
 | `npm run db:setup` | Alias for `db:seed` (kept for existing workflows) |
 | `npm run check:db` | Verify the MongoDB connection and record counts |
 
@@ -189,13 +186,13 @@ NODE_ENV=production
 - Build: `npm install` (no Prisma generation step).
 - Start: `npm start`.
 - Set environment variables: `MONGODB_URI`, `JWT_SECRET`, `CLIENT_ORIGINS`, `JWT_EXPIRES_IN`, `NODE_ENV=production`.
-- On first boot, an empty database is seeded automatically. To refresh demo data later, run `npm run db:setup` from the Render shell.
+- On first boot, an empty database is seeded automatically with the owner account and settings. To refresh them later, run `npm run db:setup` from the Render shell.
 
 ### Web app on Vercel
 
 - Root directory: `client`.
 - Build command: `npm run build`; output directory: `dist`.
-- `vercel.json` rewrites `/api/*` to `https://lpareports-api.onrender.com/api/*`.
+- `vercel.json` rewrites `/api/*` to `https://lpareports-mongo.onrender.com/api/*`.
   If your Render service has a different name, change that one URL in `client/vercel.json`.
 - Do **not** set `VITE_API_URL` unless you want to bypass the rewrite; the default `/api` is correct.
 
@@ -208,7 +205,7 @@ NODE_ENV=production
 ## 5. Verification checklist
 
 - [ ] `npm run db:setup` completes and prints credentials for the global Super Admin and both campuses.
-- [ ] Logging in as `superadmin@lpareports.rw` works with both MAIN and RULINDO selected and shows that campus's data.
+- [ ] Logging in as `nicjbdede@gmail.com` works with both MAIN and RULINDO selected and shows that campus's data.
 - [ ] A RULINDO user cannot see a MAIN report (and vice versa).
 - [ ] Super Admin can switch student registration off; all other roles are then blocked from adding learners.
 - [ ] A teacher assigned as Class Teacher of P.4 can only register learners into P.4.

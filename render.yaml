@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: lpareports-api
+    name: lpareports-mongo
     runtime: node
     plan: free
     region: oregon

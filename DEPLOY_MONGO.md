@@ -39,13 +39,18 @@ Environment variables:
 
 `render.yaml` already contains this configuration.
 
+Optional seed overrides: `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME` and
+`SEED_ADMIN_PASSWORD`. Defaults are `nicjbdede@gmail.com`, `Super Admin` and
+`Admin@1234`.
+
 On the first boot, if the database is empty, the API seeds it automatically
-(classes, subjects, staff, students, demo reports, settings). No `db:push`
-and no manual seed command are required. To refresh demo data later, open the
-Render shell and run `npm run db:setup`.
+with one global Super Admin (`nicjbdede@gmail.com`) and the required settings.
+No demo staff, students, classes or reports are created. No `db:push` and no
+manual seed command are required. To refresh the owner account and settings
+later, open the Render shell and run `npm run db:setup`.
 
 **Important:** the default API URL used by Vercel is
-`https://lpareports-api.onrender.com`. If your Render service has another
+`https://lpareports-mongo.onrender.com`. If your Render service has another
 name, update that URL in `client/vercel.json`.
 
 ## 3. Vercel (frontend)
@@ -74,12 +79,13 @@ https://YOUR-API.onrender.com/api/health
 Then sign in on the Vercel domain:
 
 ```text
-Email:    superadmin@lpareports.rw
+Email:    nicjbdede@gmail.com
 Password: Admin@1234
 Campus:   MAIN or RULINDO
 ```
 
-Other demo passwords: `Dos@12345`, `Head@12345`, `Teacher@123`.
+Create other staff, classes, students and reports from the interface after
+signing in. The seed intentionally contains no demo data.
 
 ## 5. What stayed the same
 

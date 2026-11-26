@@ -6,11 +6,11 @@
   "rewrites": [
     {
       "source": "/api",
-      "destination": "https://lpareports-api.onrender.com/api"
+      "destination": "https://lpareports-mongo.onrender.com/api"
     },
     {
       "source": "/api/(.*)",
-      "destination": "https://lpareports-api.onrender.com/api/$1"
+      "destination": "https://lpareports-mongo.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
