@@ -201,7 +201,7 @@ NODE_ENV=production
 
 ### Repository
 
-`https://github.com/nicyuzuzoog/report.git` (branch `main`).
+`https://github.com/nicyuzuzoog/lpareports-mongo.git` (branch `main`).
 
 ---
 

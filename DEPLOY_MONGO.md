@@ -17,7 +17,7 @@ mongodb+srv://USER:PASSWORD@cluster.mongodb.net/lpareports?retryWrites=true&w=ma
 
 ## 2. Render (API)
 
-Create a **Web Service** from `https://github.com/nicyuzuzoog/report.git`.
+Create a **Web Service** from `https://github.com/nicyuzuzoog/lpareports-mongo.git`.
 
 | Setting | Value |
 | --- | --- |
