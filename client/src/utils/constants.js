@@ -34,9 +34,11 @@ export const GENDERS = [
   { value: 'FEMALE', label: 'Female' }
 ];
 
+// Only two campuses exist. MAIN is the Gisozi site; RULINDO is the branch.
+// The stored values stay MAIN/RULINDO; these are the friendly labels.
 export const CAMPUSES = [
-  { value: 'MAIN', label: 'MAIN — LIGHT PEACE ACADEMY' },
-  { value: 'RULINDO', label: 'RULINDO — LIGHT PEACE ACADEMY RULINDO' }
+  { value: 'MAIN', label: 'MAIN — Gisozi' },
+  { value: 'RULINDO', label: 'BRANCH — Rulindo' }
 ];
 
 // Rwandan primary grading bands. Higher points are better (A = 6, F = 0).

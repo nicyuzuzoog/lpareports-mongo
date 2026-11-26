@@ -3,7 +3,7 @@
 A full-stack school report-card and assessment system for **Nursery**, **Lower Primary** and **Upper Primary** at **Light Peace Academy, Rwanda**, across two campuses:
 
 - **MAIN — LIGHT PEACE ACADEMY**
-- **RULINDO — LIGHT PEACE ACADEMY RULINDO**
+- **BRANCH — RULINDO**
 
 - **API:** Node.js, Express 4, Mongoose 8, **MongoDB Atlas**
 - **Web app:** React 19, Vite 7, Bootstrap 5, Bootstrap Icons
@@ -20,6 +20,7 @@ The interface is flat, clean and professional. Report cards follow a standard Rw
 
 - The **Super Admin is a single global account** (`nicjbdede@gmail.com`). On the login screen, choose either campus — the same account opens that campus's data.
 - Everyone else (DOS, Head Teacher, Teacher) belongs to one campus only. All students, classes, subjects, marks, reports, settings and audit entries are strictly campus-scoped.
+- **Sign-in is just email + password.** The campus is detected from the email automatically, even if the selector is left on the wrong campus. The selector is only needed if the same email exists in MAIN and BRANCH, or when the Super Admin wants to open a specific campus.
 - `npm run db:setup` seeds **only** this account plus the required campus/global settings:
 
   | Campus | Role | Email | Password |

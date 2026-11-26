@@ -28,8 +28,10 @@ const loginLimiter = rateLimit({
 
 const campusSchema = z.enum(['MAIN', 'RULINDO']);
 
-// Campuses have separate logins: the same email may exist on both, so a
-// campus is required. `campus` is accepted as an alias for `campusId`.
+// Campus is optional for ordinary accounts: their campus is detected from the
+// email. It is only required when the same email exists on both campuses.
+// The global Super Admin can still choose either campus with this field.
+// `campus` is accepted as an alias for `campusId`.
 const loginSchema = z
   .object({
     email: emailSchema,
@@ -37,11 +39,7 @@ const loginSchema = z
     campusId: campusSchema.optional(),
     campus: campusSchema.optional()
   })
-  .transform(({ campus, ...data }) => ({ ...data, campusId: data.campusId ?? campus }))
-  .refine((data) => campusSchema.safeParse(data.campusId).success, {
-    message: 'Select a campus.',
-    path: ['campusId']
-  });
+  .transform(({ campus, ...data }) => ({ ...data, campusId: data.campusId ?? campus }));
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -59,25 +57,37 @@ router.post(
       subjects: { include: { subject: true } }
     };
 
-    // The one global Super Admin signs in from either campus. Look the account
-    // up globally first, then fall back to the normal campus-scoped account.
-    const globalUser = await prisma.user.findFirst({
-      where: { email, isGlobal: true },
-      include
-    });
-    const user = globalUser || (await prisma.user.findFirst({
-      where: { campusId, email },
-      include
-    }));
+    // Match by email first. Most people have one account, so they do not need
+    // to pick the correct campus. If an email exists on both campuses, the
+    // selector is used to disambiguate. The global account can use either.
+    const matches = await prisma.user.findMany({ where: { email }, include });
+    const globalUser = matches.find((item) => item.isGlobal === true);
 
-    if (!user) throw new HttpError(401, 'Invalid email or password.');
+    let user;
+    let sessionCampusId;
+    if (globalUser) {
+      user = globalUser;
+      sessionCampusId = campusId || globalUser.campusId || 'MAIN';
+    } else if (matches.length > 1) {
+      if (!campusId) {
+        throw new HttpError(400, 'This email exists on both campuses. Select your campus.');
+      }
+      user = matches.find((item) => item.campusId === campusId);
+      if (!user) {
+        throw new HttpError(400, 'This email exists on both campuses. Select your campus.');
+      }
+      sessionCampusId = campusId;
+    } else {
+      user = matches[0];
+      if (!user) throw new HttpError(401, 'Invalid email or password.');
+      sessionCampusId = user.campusId;
+    }
+
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new HttpError(401, 'Invalid email or password.');
     if (!user.isActive) throw new HttpError(403, 'This account has been deactivated. Contact the Super Admin.');
 
-    // A global account is scoped to the requested campus for this session;
-    // ordinary accounts must already match that campus.
-    const sessionUser = { ...user, isGlobal: user.isGlobal === true, campusId };
+    const sessionUser = { ...user, isGlobal: user.isGlobal === true, campusId: sessionCampusId };
 
     const systemSettings = await getSystemSettings();
     if (systemSettings?.loginDisabledExceptSuperAdmin === true && !sessionUser.isGlobal) {

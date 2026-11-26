@@ -82,7 +82,7 @@ export default function Login() {
       <section className="login-form-panel">
         <div className="login-card">
           <h3>Welcome back</h3>
-          <p className="sub">Choose your campus, then sign in with the account issued to you by the Super Admin.</p>
+          <p className="sub">Sign in with the email and password issued to you by the Super Admin. Your campus is detected automatically.</p>
 
           {error ? <ErrorAlert error={error} /> : null}
 
@@ -104,6 +104,9 @@ export default function Login() {
                     <option key={campus.value} value={campus.value}>{campus.label}</option>
                   ))}
                 </select>
+              </div>
+              <div className="form-text text-muted-2" style={{ fontSize: '0.72rem' }}>
+                Your campus is detected from your email. Only change this if the same email exists in both MAIN and BRANCH.
               </div>
             </div>
 

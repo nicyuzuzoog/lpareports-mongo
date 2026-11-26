@@ -83,7 +83,7 @@ Then sign in on the Vercel domain:
 ```text
 Email:    nicjbdede@gmail.com
 Password: Admin@1234
-Campus:   MAIN or RULINDO
+Campus:   MAIN or BRANCH (RULINDO)
 ```
 
 Create other staff, classes, students and reports from the interface after

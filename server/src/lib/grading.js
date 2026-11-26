@@ -50,8 +50,8 @@ export const DEFAULT_GRADING_SCALES = {
 };
 
 export const CAMPUSES = {
-  MAIN: { id: 'MAIN', name: 'LIGHT PEACE ACADEMY', short: 'M', location: 'Kigali, Rwanda' },
-  RULINDO: { id: 'RULINDO', name: 'LIGHT PEACE ACADEMY RULINDO', short: 'R', location: 'Rulindo, Rwanda' }
+  MAIN: { id: 'MAIN', name: 'LIGHT PEACE ACADEMY — GISOZI', short: 'M', location: 'Gisozi, Kigali, Rwanda' },
+  RULINDO: { id: 'RULINDO', name: 'LIGHT PEACE ACADEMY — BRANCH', short: 'R', location: 'Rulindo, Rwanda' }
 };
 
 const CAMPUS_CONTACT = {
